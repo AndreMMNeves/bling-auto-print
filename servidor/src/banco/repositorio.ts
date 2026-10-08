@@ -312,4 +312,20 @@ export class Repositorio {
   enfileirarPlanilha(impressaoId: number): void {
     this.exec("INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", impressaoId);
   }
+
+  pendentesPlanilha(limite: number): number[] {
+    return this.todos<{ impressao_id: number }>(
+      "SELECT impressao_id FROM fila_planilha WHERE enviado_em IS NULL ORDER BY id LIMIT ?", limite,
+    ).map((r) => r.impressao_id);
+  }
+
+  marcarPlanilhaEnviada(impressaoIds: number[], agora: Date): void {
+    const st = this.db.prepare("UPDATE fila_planilha SET enviado_em = ? WHERE impressao_id = ?");
+    for (const id of impressaoIds) st.run(agora.toISOString(), id);
+  }
+
+  registrarFalhaPlanilha(impressaoIds: number[]): void {
+    const st = this.db.prepare("UPDATE fila_planilha SET tentativas = tentativas + 1 WHERE impressao_id = ?");
+    for (const id of impressaoIds) st.run(id);
+  }
 }
