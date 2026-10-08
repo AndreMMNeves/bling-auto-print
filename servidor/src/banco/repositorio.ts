@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { DadosFolha } from "../../../compartilhado/tipos.ts";
+import { fimDoDia, inicioDoDia } from "../tempo.ts";
 import { transacao } from "./banco.ts";
 
 export type Situacao = number;
@@ -15,6 +16,12 @@ export type ImpressaoRow = {
   id: number; pedido_id: number; impressora_id: number; via: number; tipo_documento: string; dados_json: string;
   status: StatusImpressao; tentativas: number; ultimo_erro: string | null; motivo: string | null;
   usuario_id: number | null; criado_em: string; iniciado_em: string | null; impresso_em: string | null;
+};
+export type FiltroRelatorio = { de: string; ate: string; vendedor?: string; pedido?: string; soReimpressoes?: boolean };
+export type LinhaRelatorio = {
+  impressaoId: number; criadoEm: string; impressoEm: string | null; numero: string; cliente: string;
+  vendedor: string | null; itens: number; via: number; status: StatusImpressao; impressora: string;
+  usuario: string | null; motivo: string | null;
 };
 export type Papel = "operador" | "supervisor";
 export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: string; papel: Papel; ativo: number };
@@ -169,6 +176,30 @@ export class Repositorio {
     return this.exec(
       "UPDATE impressoes SET status = 'fila', tentativas = 0 WHERE impressora_id = ? AND status = 'erro'", impressoraId,
     ).changes;
+  }
+
+  // --- relatório ---
+  static readonly SQL_RELATORIO = `
+    SELECT i.id AS impressaoId, i.criado_em AS criadoEm, i.impresso_em AS impressoEm, p.numero AS numero,
+      json_extract(i.dados_json, '$.cliente.nome') AS cliente, json_extract(i.dados_json, '$.pedido.vendedor') AS vendedor,
+      json_array_length(i.dados_json, '$.itens') AS itens, i.via AS via, i.status AS status,
+      im.nome_windows AS impressora, u.nome AS usuario, i.motivo AS motivo
+    FROM impressoes i
+    JOIN pedidos p ON p.id = i.pedido_id
+    JOIN impressoras im ON im.id = i.impressora_id
+    LEFT JOIN usuarios u ON u.id = i.usuario_id`;
+
+  relatorio(f: FiltroRelatorio): LinhaRelatorio[] {
+    const onde = ["i.criado_em BETWEEN ? AND ?"];
+    const params: Param[] = [inicioDoDia(f.de), fimDoDia(f.ate)];
+    if (f.vendedor) { onde.push("json_extract(i.dados_json, '$.pedido.vendedor') LIKE ?"); params.push(`%${f.vendedor}%`); }
+    if (f.pedido) { onde.push("p.numero = ?"); params.push(f.pedido.trim()); }
+    if (f.soReimpressoes) onde.push("i.via > 1");
+    return this.todos<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE ${onde.join(" AND ")} ORDER BY i.id DESC`, ...params);
+  }
+
+  linhaRelatorio(impressaoId: number): LinhaRelatorio | null {
+    return this.um<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE i.id = ?`, impressaoId);
   }
 
   // --- alertas ---

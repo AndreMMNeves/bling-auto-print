@@ -6,6 +6,7 @@ import type { MontarFolha } from "./bling/montar-folha.ts";
 import type { Config } from "./config.ts";
 import { registrarApiAgente, type GerarPdf } from "./web/api-agente.ts";
 import { registrarAuth } from "./web/auth.ts";
+import { registrarRelatorio } from "./web/relatorio.ts";
 import { registrarUsuarios } from "./web/usuarios.ts";
 
 export type DepsApp = {
@@ -26,5 +27,6 @@ export async function criarApp(d: DepsApp): Promise<FastifyInstance> {
   registrarAuth(app, d); // primeiro: o hook de sessão precisa valer para todas as rotas
   registrarApiAgente(app, d);
   registrarUsuarios(app, d);
+  registrarRelatorio(app, d);
   return app;
 }

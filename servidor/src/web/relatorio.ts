@@ -1,0 +1,50 @@
+import type { FastifyInstance } from "fastify";
+import type { FiltroRelatorio, Repositorio } from "../banco/repositorio.ts";
+import { escaparHtml } from "../html-util.ts";
+import { COLUNAS_RELATORIO, gerarCsv, linhaParaColunas } from "../relatorio.ts";
+import { diaLocal } from "../tempo.ts";
+import { exigirLogin } from "./auth.ts";
+import { pagina } from "./layout.ts";
+
+type Query = { de?: string; ate?: string; vendedor?: string; pedido?: string; so?: string };
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+function lerFiltro(q: Query, hoje: string): FiltroRelatorio {
+  return {
+    de: q.de && DIA.test(q.de) ? q.de : hoje,
+    ate: q.ate && DIA.test(q.ate) ? q.ate : hoje,
+    vendedor: q.vendedor?.trim() || undefined,
+    pedido: q.pedido?.trim() || undefined,
+    soReimpressoes: q.so === "1",
+  };
+}
+
+export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
+  app.get<{ Querystring: Query }>("/relatorio", { preHandler: exigirLogin }, async (req, reply) => {
+    const f = lerFiltro(req.query, diaLocal(d.agora()));
+    const linhas = d.repo.relatorio(f);
+    const qs = new URLSearchParams({ de: f.de, ate: f.ate, vendedor: f.vendedor ?? "", pedido: f.pedido ?? "", so: f.soReimpressoes ? "1" : "" });
+    const corpo = linhas.map((l) => `<tr>${linhaParaColunas(l).map((c, i) =>
+      i === 1 ? `<td><a href="/pedidos?numero=${encodeURIComponent(c)}">${escaparHtml(c)}</a></td>` : `<td>${escaparHtml(c)}</td>`).join("")}</tr>`).join("");
+    return reply.type("text/html").send(pagina(req.usuario, "Relatório de impressões", `
+<form class="cartao filtros" method="get">
+  <label>De <input type="date" name="de" value="${f.de}"></label>
+  <label>Até <input type="date" name="ate" value="${f.ate}"></label>
+  <label>Vendedor <input name="vendedor" value="${escaparHtml(f.vendedor)}"></label>
+  <label>Pedido <input name="pedido" value="${escaparHtml(f.pedido)}"></label>
+  <label><input type="checkbox" name="so" value="1" ${f.soReimpressoes ? "checked" : ""} style="display:inline;width:auto"> Só reimpressões</label>
+  <button>Filtrar</button>
+  <a class="botao" href="/relatorio.csv?${qs}">Exportar para Excel</a>
+</form>
+<p>${linhas.length} impressão(ões)</p>
+<div class="tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>`));
+  });
+
+  app.get<{ Querystring: Query }>("/relatorio.csv", { preHandler: exigirLogin }, async (req, reply) => {
+    const f = lerFiltro(req.query, diaLocal(d.agora()));
+    return reply
+      .type("text/csv; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="relatorio-${f.de}-a-${f.ate}.csv"`)
+      .send(gerarCsv(d.repo.relatorio(f)));
+  });
+}
