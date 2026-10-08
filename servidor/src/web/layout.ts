@@ -4,7 +4,7 @@ import type { UsuarioSessao } from "./auth.ts";
 // Liquid Glass: painéis de vidro fosco flutuando sobre um fundo de pedra polida (ônix).
 const CSS = `
 :root {
-  --fundo: #e9edf2;
+  --fundo: #dce8f8;
   --tinta: #16202b;
   --suave: #5b6775;
   --vidro: rgba(255, 255, 255, .56);
@@ -18,9 +18,9 @@ const CSS = `
   --ok: #1e9e6a;
   --ruim: #d64545;
   --atencao: #c98a12;
-  --mancha-1: #8fe3d6;
-  --mancha-2: #a9b8ff;
-  --mancha-3: #f3cfdc;
+  --mancha-1: #8ec5ff;
+  --mancha-2: #9cadff;
+  --mancha-3: #a3e4f7;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
