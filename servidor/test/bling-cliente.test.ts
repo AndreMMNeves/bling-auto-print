@@ -82,15 +82,39 @@ test("sem tokens = desconectado", async () => {
   await assert.rejects(c.obterBruto("/teste"), ErroBlingDesconectado);
 });
 
-test("listarPedidosAlterados percorre todas as páginas", async () => {
-  const pagina = (n: number, ini: number) => Array.from({ length: n }, (_, i) => ({ id: ini + i, numero: ini + i, numeroLoja: "", situacao: { id: 9 } }));
-  const { fetch, chamadas } = fetchFalso([{ json: { data: pagina(100, 1) } }, { json: { data: pagina(30, 101) } }]);
-  const lista = await cliente(fetch).listarPedidosAlterados(new Date("2026-10-08T17:00:00Z"), AGORA);
-  assert.equal(lista.length, 130);
-  assert.deepEqual(lista[0], { id: 1, numero: "1", numeroLoja: null, situacaoId: 9 });
-  assert.match(chamadas[0].url, /pagina=1/);
-  assert.match(chamadas[1].url, /pagina=2/);
-  assert.match(decodeURIComponent(chamadas[0].url.replace(/\+/g, " ")), /dataAlteracaoInicial=2026-10-08 14:00:00/);
+// Bling falso que filtra por data de alteração e pagina de 100 em 100, como a API real.
+function blingComPedidos(alterados: Array<{ id: number; em: Date }>, ignorarPagina = false) {
+  const chamadas: string[] = [];
+  const lerData = (s: string) => new Date(`${s.replace(" ", "T")}-03:00`);
+  const f = async (url: string | URL | Request) => {
+    const u = new URL(String(url));
+    chamadas.push(u.search);
+    const de = lerData(u.searchParams.get("dataAlteracaoInicial")!);
+    const ate = lerData(u.searchParams.get("dataAlteracaoFinal")!);
+    const pagina = ignorarPagina ? 1 : Number(u.searchParams.get("pagina"));
+    const naJanela = alterados.filter((p) => p.em >= de && p.em <= ate);
+    const data = naJanela.slice((pagina - 1) * 100, pagina * 100).map((p) => ({ id: p.id, numero: p.id, situacao: { id: 9 } }));
+    return new Response(JSON.stringify({ data }));
+  };
+  return { fetch: f as typeof fetch, chamadas };
+}
+
+test("listarPedidosAlterados traz tudo quando passa de 100, sem repetir", async () => {
+  const inicio = new Date("2026-10-06T12:00:00Z").getTime();
+  const alterados = Array.from({ length: 250 }, (_, i) => ({ id: i + 1, em: new Date(inicio + i * 60_000) }));
+  const b = blingComPedidos(alterados);
+  const lista = await cliente(b.fetch).listarPedidosAlterados(new Date(inicio), new Date(inicio + 300 * 60_000));
+  assert.equal(lista.length, 250);
+  assert.equal(new Set(lista.map((p) => p.id)).size, 250);
+  assert.deepEqual(lista.find((p) => p.id === 1), { id: 1, numero: "1", numeroLoja: null, situacaoId: 9 });
+  assert.match(decodeURIComponent(b.chamadas[0].replace(/\+/g, " ")), /dataAlteracaoInicial=2026-10-06 09:00:00/);
+});
+
+test("listarPedidosAlterados desiste com erro se o Bling não paginar direito", async () => {
+  const em = new Date("2026-10-06T12:00:00Z");
+  const alterados = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, em }));
+  const b = blingComPedidos(alterados, true);
+  await assert.rejects(cliente(b.fetch).listarPedidosAlterados(new Date(em.getTime() - 1000), new Date(em.getTime() + 1000)), /páginas/);
 });
 
 test("formatarDataBling usa horário de São Paulo", () => {

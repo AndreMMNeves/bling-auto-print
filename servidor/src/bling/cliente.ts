@@ -53,6 +53,9 @@ export function formatarDataBling(d: Date): string {
   return `${v("year")}-${v("month")}-${v("day")} ${v("hour")}:${v("minute")}:${v("second")}`;
 }
 
+const POR_PAGINA = 100;
+const MAX_PAGINAS = 20;
+
 const ouNulo = (v: unknown): string | null => (v === undefined || v === null || v === "" ? null : String(v));
 
 export class ClienteBling {
@@ -85,22 +88,46 @@ export class ClienteBling {
     await this.#pedirToken({ grant_type: "authorization_code", code });
   }
 
+  // Paginar uma lista que muda durante a leitura pode pular pedidos. Por isso, se a
+  // janela tiver 100+ pedidos, ela é dividida ao meio até cada pedaço caber numa página.
   async listarPedidosAlterados(desde: Date, ate: Date): Promise<ResumoPedido[]> {
-    const todos: ResumoPedido[] = [];
-    for (let pagina = 1; ; pagina++) {
-      const q = new URLSearchParams({
-        pagina: String(pagina),
-        limite: "100",
-        dataAlteracaoInicial: formatarDataBling(desde),
-        dataAlteracaoFinal: formatarDataBling(ate),
-      });
-      const j = (await this.#get(`/pedidos/vendas?${q}`)) as { data?: any[] };
-      const data = j.data ?? [];
-      for (const p of data) {
-        todos.push({ id: Number(p.id), numero: String(p.numero), numeroLoja: ouNulo(p.numeroLoja), situacaoId: Number(p.situacao?.id) });
+    const vistos = new Map<number, ResumoPedido>();
+    const pendentes: Array<[Date, Date]> = [[desde, ate]];
+    while (pendentes.length) {
+      const [de, a] = pendentes.shift()!;
+      const pagina1 = await this.#paginaAlterados(de, a, 1);
+      if (pagina1.length < POR_PAGINA) {
+        for (const p of pagina1) vistos.set(p.id, p);
+        continue;
       }
-      if (data.length < 100) return todos;
+      if (a.getTime() - de.getTime() > 2_000) {
+        const meio = new Date(Math.floor((de.getTime() + a.getTime()) / 2000) * 1000);
+        pendentes.push([de, meio], [meio, a]);
+        continue;
+      }
+      // 100+ pedidos alterados no mesmo segundo: só aí pagina, com teto.
+      for (const p of pagina1) vistos.set(p.id, p);
+      for (let pagina = 2; ; pagina++) {
+        if (pagina > MAX_PAGINAS) throw new ErroBling(0, `O Bling devolveu mais de ${MAX_PAGINAS} páginas no mesmo segundo; a paginação parece não funcionar.`);
+        const lote = await this.#paginaAlterados(de, a, pagina);
+        for (const p of lote) vistos.set(p.id, p);
+        if (lote.length < POR_PAGINA) break;
+      }
     }
+    return [...vistos.values()];
+  }
+
+  async #paginaAlterados(desde: Date, ate: Date, pagina: number): Promise<ResumoPedido[]> {
+    const q = new URLSearchParams({
+      pagina: String(pagina),
+      limite: String(POR_PAGINA),
+      dataAlteracaoInicial: formatarDataBling(desde),
+      dataAlteracaoFinal: formatarDataBling(ate),
+    });
+    const j = (await this.#get(`/pedidos/vendas?${q}`)) as { data?: any[] };
+    return (j.data ?? []).map((p) => ({
+      id: Number(p.id), numero: String(p.numero), numeroLoja: ouNulo(p.numeroLoja), situacaoId: Number(p.situacao?.id),
+    }));
   }
 
   async obterPedido(id: number): Promise<PedidoBling> {
