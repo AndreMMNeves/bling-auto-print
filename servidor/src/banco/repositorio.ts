@@ -24,6 +24,10 @@ export type LinhaRelatorio = {
   usuario: string | null; motivo: string | null;
 };
 export type AlertaView = { id: number; tipo: TipoAlerta; pedido_id: number | null; numero: string | null; mensagem: string; criado_em: string };
+export type ImpressaoView = {
+  id: number; via: number; status: StatusImpressao; criado_em: string; impresso_em: string | null;
+  motivo: string | null; usuario: string | null; ultimo_erro: string | null;
+};
 export type Papel = "operador" | "supervisor";
 export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: string; papel: Papel; ativo: number };
 export type AgenteRow = {
@@ -139,6 +143,15 @@ export class Repositorio {
 
   ultimaImpressao(pedidoId: number): ImpressaoRow | null {
     return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE pedido_id = ? ORDER BY id DESC LIMIT 1", pedidoId);
+  }
+
+  impressoesDoPedido(pedidoId: number): ImpressaoView[] {
+    return this.todos<ImpressaoView>(
+      `SELECT i.id, i.via, i.status, i.criado_em, i.impresso_em, i.motivo, u.nome AS usuario, i.ultimo_erro
+       FROM impressoes i LEFT JOIN usuarios u ON u.id = i.usuario_id
+       WHERE i.pedido_id = ? ORDER BY i.id`,
+      pedidoId,
+    );
   }
 
   buscarImpressao(id: number): ImpressaoRow | null {

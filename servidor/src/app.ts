@@ -8,6 +8,7 @@ import { registrarApiAgente, type GerarPdf } from "./web/api-agente.ts";
 import { registrarAuth } from "./web/auth.ts";
 import { registrarAlertas } from "./web/alertas.ts";
 import { registrarPainel } from "./web/painel.ts";
+import { registrarPedidos } from "./web/pedidos.ts";
 import { registrarRelatorio } from "./web/relatorio.ts";
 import { registrarUsuarios } from "./web/usuarios.ts";
 
@@ -32,5 +33,6 @@ export async function criarApp(d: DepsApp): Promise<FastifyInstance> {
   registrarRelatorio(app, d);
   registrarPainel(app, d);
   registrarAlertas(app, d);
+  registrarPedidos(app, d);
   return app;
 }
