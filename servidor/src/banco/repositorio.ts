@@ -23,6 +23,7 @@ export type LinhaRelatorio = {
   vendedor: string | null; itens: number; via: number; status: StatusImpressao; impressora: string;
   usuario: string | null; motivo: string | null;
 };
+export type AlertaView = { id: number; tipo: TipoAlerta; pedido_id: number | null; numero: string | null; mensagem: string; criado_em: string };
 export type Papel = "operador" | "supervisor";
 export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: string; papel: Papel; ativo: number };
 export type AgenteRow = {
@@ -212,6 +213,57 @@ export class Repositorio {
 
   alertaPendenteDoTipo(tipo: TipoAlerta): boolean {
     return this.um("SELECT 1 AS x FROM alertas WHERE tipo = ? AND resolvido_em IS NULL LIMIT 1", tipo) !== null;
+  }
+
+  alertasPendentes(): AlertaView[] {
+    return this.todos<AlertaView>(
+      `SELECT a.id, a.tipo, a.pedido_id, p.numero, a.mensagem, a.criado_em
+       FROM alertas a LEFT JOIN pedidos p ON p.id = a.pedido_id
+       WHERE a.resolvido_em IS NULL ORDER BY a.id DESC`,
+    );
+  }
+
+  alertasDoPedido(pedidoId: number): AlertaView[] {
+    return this.todos<AlertaView>(
+      `SELECT a.id, a.tipo, a.pedido_id, p.numero, a.mensagem, a.criado_em
+       FROM alertas a LEFT JOIN pedidos p ON p.id = a.pedido_id
+       WHERE a.pedido_id = ? AND a.resolvido_em IS NULL ORDER BY a.id DESC`,
+      pedidoId,
+    );
+  }
+
+  resolverAlerta(id: number, usuarioId: number | null, agora: Date): void {
+    this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE id = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), id);
+  }
+
+  resolverAlertasDoTipo(tipo: TipoAlerta, usuarioId: number | null, agora: Date, pedidoId?: number): void {
+    if (pedidoId === undefined) {
+      this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE tipo = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), tipo);
+    } else {
+      this.exec(
+        "UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE tipo = ? AND pedido_id = ? AND resolvido_em IS NULL",
+        usuarioId, agora.toISOString(), tipo, pedidoId,
+      );
+    }
+  }
+
+  contadoresDoDia(dia: string): { impressos: number; naFila: number; alertas: number } {
+    const impressos = this.um<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?", inicioDoDia(dia), fimDoDia(dia),
+    )!.n;
+    const naFila = this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE status IN ('fila', 'imprimindo')")!.n;
+    const alertas = this.um<{ n: number }>("SELECT COUNT(*) AS n FROM alertas WHERE resolvido_em IS NULL")!.n;
+    return { impressos, naFila, alertas };
+  }
+
+  ultimaComunicacaoAgente(impressoraId: number): string | null {
+    return this.um<{ u: string | null }>(
+      "SELECT a.ultima_comunicacao AS u FROM impressoras i JOIN agentes a ON a.id = i.agente_id WHERE i.id = ?", impressoraId,
+    )?.u ?? null;
+  }
+
+  contarErros(impressoraId: number): number {
+    return this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId)!.n;
   }
 
   // --- usuários (só o necessário aqui; o resto na Task 9) ---

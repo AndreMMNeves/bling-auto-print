@@ -6,6 +6,8 @@ import type { MontarFolha } from "./bling/montar-folha.ts";
 import type { Config } from "./config.ts";
 import { registrarApiAgente, type GerarPdf } from "./web/api-agente.ts";
 import { registrarAuth } from "./web/auth.ts";
+import { registrarAlertas } from "./web/alertas.ts";
+import { registrarPainel } from "./web/painel.ts";
 import { registrarRelatorio } from "./web/relatorio.ts";
 import { registrarUsuarios } from "./web/usuarios.ts";
 
@@ -28,5 +30,7 @@ export async function criarApp(d: DepsApp): Promise<FastifyInstance> {
   registrarApiAgente(app, d);
   registrarUsuarios(app, d);
   registrarRelatorio(app, d);
+  registrarPainel(app, d);
+  registrarAlertas(app, d);
   return app;
 }
