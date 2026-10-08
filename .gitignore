@@ -4,3 +4,10 @@ Thumbs.db
 node_modules/
 .vscode/
 .idea/
+dados/
+*.db
+*.db-wal
+*.db-shm
+servidor/config.json
+agente/config.json
+.superpowers/

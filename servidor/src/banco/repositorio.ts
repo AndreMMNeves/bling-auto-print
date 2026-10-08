@@ -1,0 +1,194 @@
+import type { DatabaseSync } from "node:sqlite";
+import type { DadosFolha } from "../../../compartilhado/tipos.ts";
+import { transacao } from "./banco.ts";
+
+export type Situacao = number;
+export type StatusImpressao = "fila" | "imprimindo" | "impresso" | "erro";
+export type TipoAlerta = "repetido" | "cancelado" | "falha_impressao" | "retomada" | "bling_desconectado";
+type Param = string | number | null;
+
+export type PedidoRow = {
+  id: number; filial_id: number; numero: string; id_bling: number; situacao: Situacao;
+  origem: "baseline" | "monitor"; detectado_em: string;
+};
+export type ImpressaoRow = {
+  id: number; pedido_id: number; impressora_id: number; via: number; tipo_documento: string; dados_json: string;
+  status: StatusImpressao; tentativas: number; ultimo_erro: string | null; motivo: string | null;
+  usuario_id: number | null; criado_em: string; iniciado_em: string | null; impresso_em: string | null;
+};
+export type AgenteRow = {
+  id: number; nome: string; ultima_comunicacao: string | null; impressora_id: number; impressora_nome: string;
+};
+
+export class Repositorio {
+  readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
+
+  protected um<T>(sql: string, ...p: Param[]): T | null {
+    return (this.db.prepare(sql).get(...p) as unknown as T | undefined) ?? null;
+  }
+
+  protected todos<T>(sql: string, ...p: Param[]): T[] {
+    return this.db.prepare(sql).all(...p) as unknown as T[];
+  }
+
+  protected exec(sql: string, ...p: Param[]): { changes: number; id: number } {
+    const r = this.db.prepare(sql).run(...p);
+    return { changes: Number(r.changes), id: Number(r.lastInsertRowid) };
+  }
+
+  // --- estado (chave/valor) ---
+  obterEstado(chave: string): string | null {
+    return this.um<{ valor: string }>("SELECT valor FROM estado WHERE chave = ?", chave)?.valor ?? null;
+  }
+
+  definirEstado(chave: string, valor: string | null): void {
+    if (valor === null) {
+      this.exec("DELETE FROM estado WHERE chave = ?", chave);
+      return;
+    }
+    this.exec(
+      "INSERT INTO estado (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
+      chave, valor,
+    );
+  }
+
+  // --- filiais, agentes, impressoras ---
+  garantirFilial(codigo: string, nome: string): number {
+    this.exec("INSERT INTO filiais (codigo, nome) VALUES (?, ?) ON CONFLICT(codigo) DO UPDATE SET nome = excluded.nome", codigo, nome);
+    return this.um<{ id: number }>("SELECT id FROM filiais WHERE codigo = ?", codigo)!.id;
+  }
+
+  garantirAgente(filialId: number, a: { nome: string; token: string; impressora: string }): { agenteId: number; impressoraId: number } {
+    this.exec("INSERT INTO agentes (nome, token) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET token = excluded.token", a.nome, a.token);
+    const agenteId = this.um<{ id: number }>("SELECT id FROM agentes WHERE nome = ?", a.nome)!.id;
+    this.exec(
+      "INSERT INTO impressoras (filial_id, agente_id, nome_windows) VALUES (?, ?, ?) ON CONFLICT(agente_id, nome_windows) DO NOTHING",
+      filialId, agenteId, a.impressora,
+    );
+    const impressoraId = this.um<{ id: number }>(
+      "SELECT id FROM impressoras WHERE agente_id = ? AND nome_windows = ?", agenteId, a.impressora,
+    )!.id;
+    return { agenteId, impressoraId };
+  }
+
+  // Se a impressora do agente mudar na config, vale a mais recente.
+  buscarAgentePorToken(token: string): AgenteRow | null {
+    return this.um<AgenteRow>(
+      `SELECT a.id, a.nome, a.ultima_comunicacao, i.id AS impressora_id, i.nome_windows AS impressora_nome
+       FROM agentes a JOIN impressoras i ON i.agente_id = a.id
+       WHERE a.token = ? ORDER BY i.id DESC LIMIT 1`,
+      token,
+    );
+  }
+
+  registrarComunicacaoAgente(agenteId: number, agora: Date): void {
+    this.exec("UPDATE agentes SET ultima_comunicacao = ? WHERE id = ?", agora.toISOString(), agenteId);
+  }
+
+  // --- pedidos ---
+  buscarPedido(filialId: number, numero: string): PedidoRow | null {
+    return this.um<PedidoRow>("SELECT * FROM pedidos WHERE filial_id = ? AND numero = ?", filialId, numero);
+  }
+
+  buscarPedidoPorId(id: number): PedidoRow | null {
+    return this.um<PedidoRow>("SELECT * FROM pedidos WHERE id = ?", id);
+  }
+
+  inserirPedido(p: {
+    filialId: number; numero: string; idBling: number; situacao: Situacao; origem: "baseline" | "monitor"; agora: Date;
+  }): number {
+    return this.exec(
+      "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?)",
+      p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString(),
+    ).id;
+  }
+
+  atualizarSituacao(pedidoId: number, situacao: Situacao): void {
+    this.exec("UPDATE pedidos SET situacao = ? WHERE id = ?", situacao, pedidoId);
+  }
+
+  // --- impressões ---
+  criarImpressao(i: {
+    pedidoId: number; impressoraId: number; via: number; dados: DadosFolha;
+    motivo: string | null; usuarioId: number | null; agora: Date;
+  }): number {
+    return this.exec(
+      `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, motivo, usuario_id, criado_em)
+       VALUES (?, ?, ?, ?, 'fila', ?, ?, ?)`,
+      i.pedidoId, i.impressoraId, i.via, JSON.stringify(i.dados), i.motivo, i.usuarioId, i.agora.toISOString(),
+    ).id;
+  }
+
+  proximaVia(pedidoId: number): number {
+    return this.um<{ v: number }>("SELECT COALESCE(MAX(via), 0) + 1 AS v FROM impressoes WHERE pedido_id = ?", pedidoId)!.v;
+  }
+
+  ultimaImpressao(pedidoId: number): ImpressaoRow | null {
+    return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE pedido_id = ? ORDER BY id DESC LIMIT 1", pedidoId);
+  }
+
+  buscarImpressao(id: number): ImpressaoRow | null {
+    return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE id = ?", id);
+  }
+
+  pegarProximaDaFila(impressoraId: number, agora: Date): ImpressaoRow | null {
+    return transacao(this.db, () => {
+      const imp = this.um<ImpressaoRow>(
+        "SELECT * FROM impressoes WHERE impressora_id = ? AND status = 'fila' ORDER BY id LIMIT 1", impressoraId,
+      );
+      if (!imp) return null;
+      this.exec("UPDATE impressoes SET status = 'imprimindo', iniciado_em = ? WHERE id = ?", agora.toISOString(), imp.id);
+      return { ...imp, status: "imprimindo" as const, iniciado_em: agora.toISOString() };
+    });
+  }
+
+  marcarImpressa(id: number, agora: Date): void {
+    this.exec("UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", agora.toISOString(), id);
+  }
+
+  marcarFalha(id: number, erro: string, novoStatus: "fila" | "erro"): void {
+    this.exec(
+      "UPDATE impressoes SET status = ?, tentativas = tentativas + 1, ultimo_erro = ? WHERE id = ?",
+      novoStatus, erro, id,
+    );
+  }
+
+  listarTravadas(iniciadasAntesDe: Date): ImpressaoRow[] {
+    return this.todos<ImpressaoRow>(
+      "SELECT * FROM impressoes WHERE status = 'imprimindo' AND iniciado_em < ? ORDER BY id", iniciadasAntesDe.toISOString(),
+    );
+  }
+
+  reenfileirarErros(impressoraId: number): number {
+    return this.exec(
+      "UPDATE impressoes SET status = 'fila', tentativas = 0 WHERE impressora_id = ? AND status = 'erro'", impressoraId,
+    ).changes;
+  }
+
+  // --- alertas ---
+  criarAlerta(a: { tipo: TipoAlerta; pedidoId: number | null; mensagem: string; agora: Date }): number {
+    return this.exec(
+      "INSERT INTO alertas (tipo, pedido_id, mensagem, criado_em) VALUES (?, ?, ?, ?)",
+      a.tipo, a.pedidoId, a.mensagem, a.agora.toISOString(),
+    ).id;
+  }
+
+  alertaPendenteDoTipo(tipo: TipoAlerta): boolean {
+    return this.um("SELECT 1 AS x FROM alertas WHERE tipo = ? AND resolvido_em IS NULL LIMIT 1", tipo) !== null;
+  }
+
+  // --- usuários (só o necessário aqui; o resto na Task 9) ---
+  nomeUsuario(id: number | null): string | null {
+    if (id === null) return null;
+    return this.um<{ nome: string }>("SELECT nome FROM usuarios WHERE id = ?", id)?.nome ?? null;
+  }
+
+  // --- planilha ---
+  enfileirarPlanilha(impressaoId: number): void {
+    this.exec("INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", impressaoId);
+  }
+}

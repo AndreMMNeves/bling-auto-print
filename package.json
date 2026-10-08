@@ -1,0 +1,31 @@
+{
+  "name": "onix-impressao-expedicao",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"servidor/test/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "servidor": "node servidor/src/main.ts",
+    "agente": "node agente/src/main.ts",
+    "criar-usuario": "node servidor/src/cli/criar-usuario.ts",
+    "explorar-bling": "node servidor/src/cli/explorar-bling.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.3",
+    "@fastify/formbody": "^9.0.1",
+    "bwip-js": "^4.11.4",
+    "fastify": "^5.12.5",
+    "google-auth-library": "^11.2.0",
+    "node-windows": "^1.0.0-beta.8",
+    "pdf-to-printer": "^5.8.1",
+    "puppeteer-core": "^25.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "pdf-lib": "^1.17.1",
+    "typescript": "^5.9.3"
+  }
+}
