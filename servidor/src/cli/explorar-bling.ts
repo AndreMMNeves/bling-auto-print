@@ -51,8 +51,12 @@ async function conectar(): Promise<void> {
         res.writeHead(500).end(String(e));
         falha(e);
       }
-    }).listen(porta);
-    console.log(`\nAbra no navegador (logado no Bling ES):\n\n  ${bling.urlAutorizacao(state)}\n`);
+    });
+    srv.on("error", falha);
+    srv.listen(porta, "127.0.0.1", () => {
+      console.log(`\nEscutando em http://localhost:${porta}/bling/callback`);
+      console.log(`Abra no navegador (logado no Bling ${config.filial.codigo}):\n\n  ${bling.urlAutorizacao(state)}\n`);
+    });
   });
 }
 
