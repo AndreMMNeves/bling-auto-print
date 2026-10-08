@@ -1,0 +1,7 @@
+{
+  "servidorUrl": "http://localhost:3010",
+  "token": "O MESMO token configurado em servidor/config.json > agentes",
+  "modo": "pasta",
+  "pasta": "dados/folhas",
+  "intervaloSegundos": 5
+}

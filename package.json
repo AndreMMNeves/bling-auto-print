@@ -6,7 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test --test-reporter=spec \"servidor/test/*.test.ts\"",
+    "test": "node --test --test-reporter=spec \"servidor/test/*.test.ts\" \"agente/test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "servidor": "node servidor/src/main.ts",
     "agente": "node agente/src/main.ts",
