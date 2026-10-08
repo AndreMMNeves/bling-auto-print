@@ -121,19 +121,45 @@ test("dois ciclos ao mesmo tempo não duplicam a 1ª via", async () => {
   assert.equal(c.impressoes().length, 1);
 });
 
-test("erro ao montar a folha não avança o cursor e o próximo ciclo tenta de novo", async () => {
+test("pedido que falha ao montar não trava os outros e é tentado de novo depois", async () => {
+  const c = cenario();
+  await executarCiclo(c.deps);
+  c.definirLista([resumo("10", ATENDIDO), resumo("11", ATENDIDO)]);
+  const montarOk = c.deps.montarFolha;
+  c.deps.montarFolha = async (idBling, quando) => {
+    if (idBling === 1010) throw new Error("Bling /produtos/5 respondeu 404");
+    return montarOk(idBling, quando);
+  };
+  c.avancar(30_000);
+  await executarCiclo(c.deps);
+  assert.deepEqual(c.impressoes().map((i) => JSON.parse(i.dados_json).pedido.numero), ["11"]);
+  assert.equal(c.repo.obterEstado(`monitor:cursor:${c.filialId}`), new Date(AGORA.getTime() + 30_000).toISOString());
+  assert.deepEqual(c.alertas().map((a) => a.tipo), ["falha_impressao"]);
+  assert.match(c.alertas()[0].mensagem, /Pedido 10.*404/);
+
+  // Sai da janela do Bling, mas continua pendente; falha de novo sem alerta repetido.
+  c.definirLista([]);
+  c.avancar(30_000);
+  await executarCiclo(c.deps);
+  assert.equal(c.alertas().length, 1);
+
+  // Bling volta a responder: o pendente é impresso.
+  c.deps.montarFolha = montarOk;
+  c.avancar(30_000);
+  await executarCiclo(c.deps);
+  assert.deepEqual(c.impressoes().map((i) => JSON.parse(i.dados_json).pedido.numero).sort(), ["10", "11"]);
+  assert.equal(c.repo.obterEstado(`monitor:pendentes:${c.filialId}`), "[]");
+});
+
+test("Bling desconectado ao montar a folha derruba o ciclo sem avançar o cursor", async () => {
   const c = cenario();
   await executarCiclo(c.deps);
   const cursorAntes = c.repo.obterEstado(`monitor:cursor:${c.filialId}`);
   c.definirLista([resumo("10", ATENDIDO)]);
-  const montarOk = c.deps.montarFolha;
-  c.deps.montarFolha = async () => { throw new Error("Bling 500"); };
+  c.deps.montarFolha = async () => { throw new ErroBlingDesconectado("revogado"); };
   c.avancar(30_000);
-  await assert.rejects(executarCiclo(c.deps), /Bling 500/);
+  await assert.rejects(executarCiclo(c.deps), ErroBlingDesconectado);
   assert.equal(c.repo.obterEstado(`monitor:cursor:${c.filialId}`), cursorAntes);
-  c.deps.montarFolha = montarOk;
-  await executarCiclo(c.deps);
-  assert.equal(c.impressoes().length, 1);
 });
 
 test("cicloMonitorado registra erro do Bling e cria alerta de desconexão uma vez só", async () => {

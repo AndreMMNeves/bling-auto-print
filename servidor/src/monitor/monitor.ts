@@ -43,6 +43,13 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
 
   const ultimo = new Date(cursor);
   const lista = await d.bling.listarPedidosAlterados(new Date(ultimo.getTime() - d.margemMinutos * 60_000), agora);
+
+  // Pedidos que falharam antes continuam sendo tentados mesmo fora da janela do Bling.
+  const chavePendentes = `monitor:pendentes:${d.filialId}`;
+  const pendentes = JSON.parse(d.repo.obterEstado(chavePendentes) ?? "[]") as ResumoPedido[];
+  for (const p of pendentes) if (!lista.some((r) => r.id === p.id)) lista.push(p);
+  const aindaPendentes: ResumoPedido[] = [];
+
   lista.sort((a, b) => Number(a.numero) - Number(b.numero) || a.numero.localeCompare(b.numero));
 
   let novos = 0;
@@ -52,7 +59,22 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
 
     if (!existente) {
       if (r.situacaoId !== d.situacaoAtendido) continue;
-      const dados = await d.montarFolha(r.id, agora);
+      let dados: Awaited<ReturnType<MontarFolha>>;
+      try {
+        dados = await d.montarFolha(r.id, agora);
+      } catch (e) {
+        if (e instanceof ErroBlingDesconectado) throw e;
+        // Um pedido com problema não pode travar os outros.
+        aindaPendentes.push({ id: r.id, numero: r.numero, numeroLoja: r.numeroLoja, situacaoId: r.situacaoId });
+        if (!pendentes.some((p) => p.id === r.id)) {
+          d.repo.criarAlerta({
+            tipo: "falha_impressao", pedidoId: null, agora,
+            mensagem: `Pedido ${r.numero}: não foi possível buscar os dados no Bling (${e instanceof Error ? e.message : String(e)}). O sistema tenta de novo a cada consulta.`,
+          });
+          alertas++;
+        }
+        continue;
+      }
       // Confere de novo dentro da transação: outro ciclo pode ter criado enquanto esperávamos o Bling.
       const criado = transacao(d.repo.db, () => {
         if (d.repo.buscarPedido(d.filialId, r.numero)) return false;
@@ -90,6 +112,7 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
     alertas++;
   }
 
+  d.repo.definirEstado(chavePendentes, JSON.stringify(aindaPendentes));
   d.repo.definirEstado(chave, agora.toISOString());
   return { tipo: "ciclo", novos, alertas };
 }

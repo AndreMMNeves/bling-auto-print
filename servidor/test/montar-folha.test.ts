@@ -65,3 +65,15 @@ test("vendedor fica em cache entre pedidos; sem etiqueta vira campos nulos", asy
   assert.equal(chamadas.vendedor, 1);
   assert.deepEqual(d.entrega, { endereco: null, cidadeUf: null, cep: null });
 });
+
+test("produto ou vendedor excluído no Bling não impede a folha", async () => {
+  const f: FonteBling = {
+    obterPedido: async () => pedido(),
+    obterProduto: async (id) => { if (id === 2) throw new Error("Bling /produtos/2 respondeu 404"); return { gtin: "7891111111111", codigo: null }; },
+    obterVendedor: async () => { throw new Error("Bling /vendedores/3 respondeu 404"); },
+  };
+  const d = await criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "numero" })(77, AGORA);
+  assert.equal(d.pedido.vendedor, null);
+  assert.equal(d.itens.find((i) => i.sku === "ZZ-9")!.ean, null);
+  assert.equal(d.itens.find((i) => i.sku === "AH-1")!.ean, "7891111111111");
+});

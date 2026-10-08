@@ -1,6 +1,6 @@
 import type { DadosFolha } from "../../../compartilhado/tipos.ts";
 import type { CampoCodigoBarras } from "../config.ts";
-import type { ClienteBling, PedidoBling } from "./cliente.ts";
+import { ErroBlingDesconectado, type ClienteBling, type PedidoBling } from "./cliente.ts";
 
 export type FonteBling = Pick<ClienteBling, "obterPedido" | "obterProduto" | "obterVendedor">;
 export type MontarFolha = (idBling: number, atendidoEm: Date) => Promise<DadosFolha>;
@@ -14,16 +14,17 @@ export function criarMontadorFolha(
   return async (idBling, atendidoEm) => {
     const p = await bling.obterPedido(idBling);
 
+    // Vendedor ou produto excluído no Bling não pode impedir a folha: o campo sai como "—".
     let vendedor: string | null = null;
     if (p.vendedorId) {
-      if (!vendedores.has(p.vendedorId)) vendedores.set(p.vendedorId, (await bling.obterVendedor(p.vendedorId)).nome);
+      if (!vendedores.has(p.vendedorId)) vendedores.set(p.vendedorId, await semFalhar(() => bling.obterVendedor(p.vendedorId!), (v) => v.nome));
       vendedor = vendedores.get(p.vendedorId) ?? null;
     }
 
     // EAN muda raramente, mas é buscado a cada pedido para nunca imprimir um EAN velho.
     const gtins = new Map<number, string | null>();
     for (const i of p.itens) {
-      if (i.produtoId && !gtins.has(i.produtoId)) gtins.set(i.produtoId, (await bling.obterProduto(i.produtoId)).gtin);
+      if (i.produtoId && !gtins.has(i.produtoId)) gtins.set(i.produtoId, await semFalhar(() => bling.obterProduto(i.produtoId!), (r) => r.gtin));
     }
 
     const itens = p.itens
@@ -53,6 +54,17 @@ export function criarMontadorFolha(
       itens,
     };
   };
+}
+
+// Desconexão do Bling continua derrubando o ciclo; o resto vira campo vazio.
+async function semFalhar<T>(buscar: () => Promise<T>, extrair: (r: T) => string | null): Promise<string | null> {
+  try {
+    return extrair(await buscar());
+  } catch (e) {
+    if (e instanceof ErroBlingDesconectado) throw e;
+    console.error(`[folha] ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
 }
 
 function codigoDoPedido(p: PedidoBling, campo: CampoCodigoBarras): string {
