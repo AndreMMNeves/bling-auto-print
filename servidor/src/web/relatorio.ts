@@ -37,7 +37,7 @@ export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio;
   <a class="botao" href="/relatorio.csv?${qs}">Exportar para Excel</a>
 </form>
 <p>${linhas.length} impressão(ões)</p>
-<div class="tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>`));
+<div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>`));
   });
 
   app.get<{ Querystring: Query }>("/relatorio.csv", { preHandler: exigirLogin }, async (req, reply) => {

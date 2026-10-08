@@ -35,7 +35,7 @@ function telaPedido(d: DepsPedidos, pedidoId: number, usuario: UsuarioSessao, er
 </div>
 ${listaAlertas(d.repo.alertasDoPedido(p.id), usuario)}
 <h2>Impressões</h2>
-<div class="tabela"><table><thead><tr><th>Via</th><th>Status</th><th>Quando</th><th>Por</th><th>Motivo</th><th>Erro</th></tr></thead>
+<div class="cartao tabela"><table><thead><tr><th>Via</th><th>Status</th><th>Quando</th><th>Por</th><th>Motivo</th><th>Erro</th></tr></thead>
 <tbody>${linhas || `<tr><td colspan="6">Nenhuma impressão.</td></tr>`}</tbody></table></div>
 ${form}`);
 }

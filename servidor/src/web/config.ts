@@ -18,7 +18,7 @@ export function registrarConfig(app: FastifyInstance, d: DepsApp): void {
   <p>${d.bling.estaConectado() ? "Conectado." : '<span class="ruim">Não conectado.</span>'} ${escaparHtml(s.bling.texto)}</p>
   <a class="botao" href="/bling/conectar">${d.bling.estaConectado() ? "Reconectar ao Bling" : "Conectar ao Bling"}</a>
 </div>
-<div class="cartao"><table>
+<div class="cartao tabela"><table>
   <tr><th>Filial</th><td>${escaparHtml(c.filial.nome)} (${escaparHtml(c.filial.codigo)})</td></tr>
   <tr><th>Impressora</th><td>${c.agentes.map((a) => `${escaparHtml(a.impressora)} (agente ${escaparHtml(a.nome)})`).join("<br>")}</td></tr>
   <tr><th>Consulta ao Bling</th><td>a cada ${c.bling.intervaloSegundos}s, margem ${c.bling.margemMinutos} min</td></tr>

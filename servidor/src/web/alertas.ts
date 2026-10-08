@@ -13,10 +13,12 @@ const TITULO: Record<AlertaView["tipo"], string> = {
 export function listaAlertas(alertas: AlertaView[], usuario: UsuarioSessao): string {
   if (!alertas.length) return `<p class="ok">Nenhum alerta pendente.</p>`;
   return alertas.map((a) => `<div class="cartao alerta">
-    <b>${TITULO[a.tipo]}</b> · ${formatarDataHora(a.criado_em)}
+    <div class="titulo">${TITULO[a.tipo]}<span class="quando">${formatarDataHora(a.criado_em)}</span></div>
     <p>${escaparHtml(a.mensagem)}</p>
-    ${a.pedido_id ? `<a class="botao" href="/pedidos/${a.pedido_id}">Abrir pedido ${escaparHtml(a.numero)}</a> ` : ""}
-    ${usuario.papel === "supervisor" ? `<form class="inline" method="post" action="/alertas/${a.id}/resolver"><button>Marcar como resolvido</button></form>` : ""}
+    <div class="acoes">
+      ${a.pedido_id ? `<a class="botao" href="/pedidos/${a.pedido_id}">Abrir pedido ${escaparHtml(a.numero)}</a>` : ""}
+      ${usuario.papel === "supervisor" ? `<form class="inline" method="post" action="/alertas/${a.id}/resolver"><button class="secundario">Marcar como resolvido</button></form>` : ""}
+    </div>
   </div>`).join("");
 }
 

@@ -30,12 +30,13 @@ export function verificarSenha(senha: string, armazenado: string): boolean {
 
 function paginaLogin(erro: string | null): string {
   return pagina(null, "Entrar", `
-<form method="post" action="/login" class="cartao estreito">
+<form method="post" action="/login" class="cartao estreito entrada">
+  <span class="marca">Ônix HOF<small>Expedição</small></span>
   ${erro ? `<p class="erro">${escaparHtml(erro)}</p>` : ""}
   <label>E-mail <input name="email" type="email" required autofocus></label>
   <label>Senha <input name="senha" type="password" required></label>
   <button>Entrar</button>
-</form>`);
+</form>`, { semTitulo: true });
 }
 
 export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {

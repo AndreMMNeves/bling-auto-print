@@ -22,8 +22,8 @@ export function registrarPainel(app: FastifyInstance, d: { repo: Repositorio; im
     const mensagem = req.query.reenfileirados !== undefined ? `${Number(req.query.reenfileirados)} impressão(ões) devolvida(s) para a fila.` : undefined;
 
     const html = `
-<div class="cartao">${ind(s.bling)}${ind(s.agente)}${ind(s.impressora)}
-  ${supervisor && !s.impressora.ok ? `<form method="post" action="/fila/imprimir-pendentes" style="margin-top:8px"><button>Imprimir pendentes</button></form>` : ""}
+<div class="cartao status">${ind(s.bling)}${ind(s.agente)}${ind(s.impressora)}
+  ${supervisor && !s.impressora.ok ? `<form class="inline" method="post" action="/fila/imprimir-pendentes"><button>Imprimir pendentes</button></form>` : ""}
 </div>
 <div class="grade">
   <div class="cartao"><div class="numero">${c.impressos}</div>impressos hoje</div>
@@ -33,7 +33,7 @@ export function registrarPainel(app: FastifyInstance, d: { repo: Repositorio; im
 <h2>Alertas</h2>
 ${listaAlertas(d.repo.alertasPendentes().slice(0, 5), req.usuario!)}
 <h2>Últimas impressões de hoje</h2>
-<div class="tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((col) => `<th>${col}</th>`).join("")}</tr></thead>
+<div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((col) => `<th>${col}</th>`).join("")}</tr></thead>
 <tbody>${recentes.map((l) => `<tr>${linhaParaColunas(l).map((col) => `<td>${escaparHtml(col)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     return reply.type("text/html").send(pagina(req.usuario, "Painel", html, { atualizarSegundos: 30, mensagem }));
   });
