@@ -66,3 +66,35 @@ test("ImpressoraPasta salva o PDF", async () => {
   await new ImpressoraPasta(pasta).imprimir(Buffer.from("%PDF"), "HP", 42);
   assert.equal(readFileSync(join(pasta, "impressao-42.pdf"), "utf8"), "%PDF");
 });
+
+test("se o servidor cair ao receber o resultado, o agente tenta de novo sem reimprimir", async () => {
+  const i = impressoraFalsa();
+  let postsResultado = 0;
+  const esperas: number[] = [];
+  const f = async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.endsWith("/api/agente/proximo")) return Response.json({ id: 9, impressora: "HP A4", pdfBase64: Buffer.from("pdf").toString("base64") });
+    postsResultado++;
+    if (postsResultado === 1) throw new Error("ECONNREFUSED");
+    if (postsResultado === 2) return new Response(null, { status: 503 });
+    return Response.json({ ok: true });
+  };
+  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: f as typeof fetch, esperar: async (ms) => { esperas.push(ms); } });
+  assert.equal(r, "impresso");
+  assert.equal(i.impressos.length, 1);
+  assert.equal(postsResultado, 3);
+  assert.equal(esperas.length, 2);
+});
+
+test("desiste de avisar o servidor antes do limite de travada (5 min)", async () => {
+  const esperas: number[] = [];
+  const f = async (url: string | URL | Request) => {
+    if (String(url).endsWith("/api/agente/proximo")) return Response.json({ id: 9, impressora: "HP A4", pdfBase64: "" });
+    throw new Error("ECONNREFUSED");
+  };
+  await assert.rejects(
+    processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, fetch: f as typeof fetch, esperar: async (ms) => { esperas.push(ms); } }),
+    /impressão 9/,
+  );
+  assert.ok(esperas.reduce((s, x) => s + x, 0) < 5 * 60_000);
+});
