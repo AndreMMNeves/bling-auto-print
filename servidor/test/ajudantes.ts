@@ -31,3 +31,39 @@ export function dadosFolhaExemplo(qtdItens = 2, numero = "12345"): DadosFolha {
     })),
   };
 }
+
+import type { FastifyInstance } from "fastify";
+import type { Config } from "../src/config.ts";
+import { criarApp, type DepsApp } from "../src/app.ts";
+import { hashSenha } from "../src/web/auth.ts";
+
+export function configDeTeste(): Config {
+  return {
+    porta: 0, urlPublica: "http://localhost:3010", segredoSessao: "segredo-de-teste-com-tamanho-suficiente-123",
+    arquivoBanco: ":memory:", chromePath: "", filial: { codigo: "ES", nome: "Espírito Santo" },
+    bling: { clientId: "a", clientSecret: "b", intervaloSegundos: 30, margemMinutos: 5, situacaoAtendido: 9, situacaoCancelado: 12, campoCodigoBarras: "numero" },
+    agentes: [{ nome: "expedicao-es", token: "token-teste", impressora: "HP A4" }], google: null,
+  };
+}
+
+export async function appDeTeste(extra: Partial<DepsApp> = {}) {
+  const b = bancoDeTeste();
+  const supervisorId = b.repo.criarUsuario({ nome: "Sup", email: "sup@x.com", senhaHash: hashSenha("senha-sup"), papel: "supervisor" });
+  const operadorId = b.repo.criarUsuario({ nome: "Op", email: "op@x.com", senhaHash: hashSenha("senha-op"), papel: "operador" });
+  const deps: DepsApp = {
+    repo: b.repo, config: configDeTeste(), filialId: b.filialId, impressoraId: b.impressoraId, agora: () => AGORA,
+    gerarPdf: async () => Buffer.from("%PDF"), montarFolha: async (idBling) => dadosFolhaExemplo(2, String(idBling - 1000)),
+    bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => {}, estaConectado: () => true },
+    ...extra,
+  };
+  const app = await criarApp(deps);
+  return { ...b, app, deps, supervisorId, operadorId };
+}
+
+export async function entrar(app: FastifyInstance, email: string, senha: string): Promise<string> {
+  const r = await app.inject({ method: "POST", url: "/login", payload: { email, senha } });
+  const sc = r.headers["set-cookie"];
+  const bruto = Array.isArray(sc) ? sc[0] : sc;
+  if (!bruto) throw new Error(`login falhou (${r.statusCode})`);
+  return bruto.split(";")[0];
+}

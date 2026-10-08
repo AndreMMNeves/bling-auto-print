@@ -16,6 +16,8 @@ export type ImpressaoRow = {
   status: StatusImpressao; tentativas: number; ultimo_erro: string | null; motivo: string | null;
   usuario_id: number | null; criado_em: string; iniciado_em: string | null; impresso_em: string | null;
 };
+export type Papel = "operador" | "supervisor";
+export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: string; papel: Papel; ativo: number };
 export type AgenteRow = {
   id: number; nome: string; ultima_comunicacao: string | null; impressora_id: number; impressora_nome: string;
 };
@@ -185,6 +187,29 @@ export class Repositorio {
   nomeUsuario(id: number | null): string | null {
     if (id === null) return null;
     return this.um<{ nome: string }>("SELECT nome FROM usuarios WHERE id = ?", id)?.nome ?? null;
+  }
+
+  criarUsuario(u: { nome: string; email: string; senhaHash: string; papel: Papel }): number {
+    return this.exec(
+      "INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)",
+      u.nome, u.email.trim().toLowerCase(), u.senhaHash, u.papel,
+    ).id;
+  }
+
+  buscarUsuarioPorEmail(email: string): UsuarioRow | null {
+    return this.um<UsuarioRow>("SELECT * FROM usuarios WHERE email = ?", email.trim().toLowerCase());
+  }
+
+  buscarUsuarioPorId(id: number): UsuarioRow | null {
+    return this.um<UsuarioRow>("SELECT * FROM usuarios WHERE id = ?", id);
+  }
+
+  listarUsuarios(): UsuarioRow[] {
+    return this.todos<UsuarioRow>("SELECT * FROM usuarios ORDER BY ativo DESC, nome");
+  }
+
+  definirUsuarioAtivo(id: number, ativo: boolean): void {
+    this.exec("UPDATE usuarios SET ativo = ? WHERE id = ?", ativo ? 1 : 0, id);
   }
 
   // --- planilha ---
