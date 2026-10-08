@@ -1,0 +1,21 @@
+{
+  "porta": 3010,
+  "urlPublica": "http://localhost:3010",
+  "segredoSessao": "TROQUE-por-um-texto-aleatorio-com-40-caracteres-ou-mais",
+  "arquivoBanco": "dados/expedicao.db",
+  "chromePath": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "filial": { "codigo": "ES", "nome": "Espírito Santo" },
+  "bling": {
+    "clientId": "",
+    "clientSecret": "",
+    "intervaloSegundos": 30,
+    "margemMinutos": 5,
+    "situacaoAtendido": 9,
+    "situacaoCancelado": 12,
+    "campoCodigoBarras": "numero"
+  },
+  "agentes": [
+    { "nome": "expedicao-es", "token": "TROQUE-por-um-token-aleatorio", "impressora": "NOME EXATO DA IMPRESSORA NO WINDOWS" }
+  ],
+  "google": null
+}
