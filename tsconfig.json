@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["compartilhado", "servidor", "agente"]
+  "include": ["compartilhado", "servidor", "agente", "scripts"]
 }
