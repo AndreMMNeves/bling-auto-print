@@ -26,6 +26,10 @@ export type Config = {
   google: null | { arquivoCredenciais: string; planilhaId: string; aba: string };
 };
 
+export function segredoFraco(s: string): boolean {
+  return s.length < 32 || /TROQUE/i.test(s);
+}
+
 export function carregarConfig(arquivo: string): Config {
   const c = JSON.parse(readFileSync(arquivo, "utf8")) as Config;
   const faltando: string[] = [];
@@ -37,6 +41,13 @@ export function carregarConfig(arquivo: string): Config {
   if (!c.bling?.clientSecret) faltando.push("bling.clientSecret");
   if (!Array.isArray(c.agentes) || c.agentes.length === 0) faltando.push("agentes");
   if (faltando.length) throw new Error(`config.json incompleto: ${faltando.join(", ")}`);
+  // O servidor fica exposto na rede local: segredos de exemplo permitiriam forjar login ou roubar trabalhos.
+  if (segredoFraco(c.segredoSessao)) {
+    throw new Error("config.json: segredoSessao precisa ser um texto aleatório próprio, com 32+ caracteres (não use o do exemplo)");
+  }
+  for (const a of c.agentes) {
+    if (segredoFraco(a.token)) throw new Error(`config.json: o token do agente "${a.nome}" precisa ser aleatório, com 32+ caracteres (não use o do exemplo)`);
+  }
   if (!["numero", "numeroLoja", "id"].includes(c.bling.campoCodigoBarras)) {
     throw new Error(`config.json: bling.campoCodigoBarras deve ser "numero", "numeroLoja" ou "id"`);
   }

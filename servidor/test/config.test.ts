@@ -12,10 +12,10 @@ function gravar(obj: unknown): string {
 }
 
 const valida = {
-  porta: 3010, urlPublica: "http://localhost:3010", segredoSessao: "s", arquivoBanco: "dados/x.db",
+  porta: 3010, urlPublica: "http://localhost:3010", segredoSessao: "s".repeat(40), arquivoBanco: "dados/x.db",
   chromePath: "C:/chrome.exe", filial: { codigo: "ES", nome: "Espírito Santo" },
   bling: { clientId: "a", clientSecret: "b", intervaloSegundos: 30, margemMinutos: 5, situacaoAtendido: 9, situacaoCancelado: 12, campoCodigoBarras: "numero" },
-  agentes: [{ nome: "expedicao-es", token: "t", impressora: "HP" }],
+  agentes: [{ nome: "expedicao-es", token: "t".repeat(32), impressora: "HP" }],
   google: null,
 };
 
@@ -34,4 +34,12 @@ test("aponta os campos que faltam", () => {
 
 test("campoCodigoBarras inválido é recusado", () => {
   assert.throws(() => carregarConfig(gravar({ ...valida, bling: { ...valida.bling, campoCodigoBarras: "x" } })), /campoCodigoBarras/);
+});
+
+test("recusa segredo de sessão ou token de agente de exemplo/curtos", () => {
+  const forte = "x".repeat(40);
+  assert.throws(() => carregarConfig(gravar({ ...valida, segredoSessao: "TROQUE-por-um-texto-aleatorio-com-40-caracteres-ou-mais" })), /segredoSessao/);
+  assert.throws(() => carregarConfig(gravar({ ...valida, segredoSessao: "curto" })), /segredoSessao/);
+  assert.throws(() => carregarConfig(gravar({ ...valida, segredoSessao: forte, agentes: [{ nome: "a", token: "TROQUE-por-um-token-aleatorio", impressora: "HP" }] })), /token/);
+  assert.doesNotThrow(() => carregarConfig(gravar({ ...valida, segredoSessao: forte, agentes: [{ nome: "a", token: "y".repeat(32), impressora: "HP" }] })));
 });
