@@ -23,25 +23,6 @@ const CSS = `
   --mancha-3: #f3cfdc;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --fundo: #0e1116;
-    --tinta: #e8edf3;
-    --suave: #97a3b1;
-    --vidro: rgba(30, 36, 45, .42);
-    --vidro-forte: rgba(38, 45, 56, .8);
-    --borda-vidro: rgba(255, 255, 255, .1);
-    --brilho: rgba(255, 255, 255, .14);
-    --linha: rgba(255, 255, 255, .08);
-    --sombra: 0 18px 40px -20px rgba(0, 0, 0, .7);
-    --jade: #3cc7b6;
-    --jade-suave: rgba(60, 199, 182, .14);
-    --mancha-1: #11796f;
-    --mancha-2: #3a47a8;
-    --mancha-3: #6b2f4d;
-    color-scheme: dark;
-  }
-}
 * { box-sizing: border-box; }
 html { min-height: 100%; }
 body {
