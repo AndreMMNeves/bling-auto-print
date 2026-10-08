@@ -150,3 +150,12 @@ test("armazemNoBanco guarda tokens por filial", () => {
   assert.deepEqual(armazemNoBanco(repo, "ES").ler(), tokenValido());
   assert.equal(armazemNoBanco(repo, "SP").ler(), null);
 });
+
+test("listarPedidosPorSituacao pagina pela situação até acabar", async () => {
+  const pagina = (n: number, ini: number) => Array.from({ length: n }, (_, i) => ({ id: ini + i, numero: ini + i, situacao: { id: 9 } }));
+  const { fetch, chamadas } = fetchFalso([{ json: { data: pagina(100, 1) } }, { json: { data: pagina(7, 101) } }]);
+  const lista = await cliente(fetch).listarPedidosPorSituacao(9);
+  assert.equal(lista.length, 107);
+  assert.match(decodeURIComponent(chamadas[0].url), /idsSituacoes\[\]=9/);
+  assert.match(chamadas[1].url, /pagina=2/);
+});

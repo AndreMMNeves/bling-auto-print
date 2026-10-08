@@ -6,7 +6,10 @@ import { formatarDataHora } from "../tempo.ts";
 
 export type DepsMonitor = {
   repo: Repositorio;
-  bling: { listarPedidosAlterados(desde: Date, ate: Date): Promise<ResumoPedido[]> };
+  bling: {
+    listarPedidosAlterados(desde: Date, ate: Date): Promise<ResumoPedido[]>;
+    listarPedidosPorSituacao(situacaoId: number): Promise<ResumoPedido[]>;
+  };
   montarFolha: MontarFolha;
   filialId: number;
   impressoraId: number;
@@ -20,7 +23,6 @@ export type ResultadoCiclo =
   | { tipo: "baseline"; registrados: number }
   | { tipo: "ciclo"; novos: number; alertas: number };
 
-const DIAS_BASELINE = 30;
 const LIMIAR_RETOMADA_MS = 5 * 60_000;
 
 export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
@@ -29,8 +31,9 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
   const cursor = d.repo.obterEstado(chave);
 
   if (cursor === null) {
-    // Primeira ativação: o que já está Atendido é registrado, nunca impresso.
-    const lista = await d.bling.listarPedidosAlterados(new Date(agora.getTime() - DIAS_BASELINE * 86_400_000), agora);
+    // Primeira ativação: tudo o que já está Atendido (de qualquer data) é registrado, nunca impresso.
+    // Assim um pedido antigo que ganhar nota fiscal ou rastreio depois não sai como 1ª via.
+    const lista = await d.bling.listarPedidosPorSituacao(d.situacaoAtendido);
     let registrados = 0;
     for (const r of lista) {
       if (r.situacaoId !== d.situacaoAtendido || d.repo.buscarPedido(d.filialId, r.numero)) continue;

@@ -10,11 +10,15 @@ const resumo = (numero: string, situacaoId: number): ResumoPedido => ({ id: Numb
 function cenario() {
   const base = bancoDeTeste();
   let lista: ResumoPedido[] = [];
+  let antigos: ResumoPedido[] = [];
   let agora = AGORA;
   const consultas: Array<{ desde: Date; ate: Date }> = [];
   const deps: DepsMonitor = {
     repo: base.repo,
-    bling: { listarPedidosAlterados: async (desde, ate) => { consultas.push({ desde, ate }); return lista; } },
+    bling: {
+      listarPedidosAlterados: async (desde, ate) => { consultas.push({ desde, ate }); return lista; },
+      listarPedidosPorSituacao: async (situacaoId) => [...antigos, ...lista].filter((p) => p.situacaoId === situacaoId),
+    },
     montarFolha: async (idBling) => dadosFolhaExemplo(1, String(idBling - 1000)),
     filialId: base.filialId, impressoraId: base.impressoraId,
     situacaoAtendido: ATENDIDO, situacaoCancelado: CANCELADO, margemMinutos: 5,
@@ -23,21 +27,29 @@ function cenario() {
   return {
     ...base, deps, consultas,
     definirLista: (l: ResumoPedido[]) => { lista = l; },
+    definirAntigos: (l: ResumoPedido[]) => { antigos = l; },
     avancar: (ms: number) => { agora = new Date(agora.getTime() + ms); },
     impressoes: () => base.repo.db.prepare("SELECT * FROM impressoes ORDER BY id").all() as Array<{ id: number; via: number; dados_json: string }>,
     alertas: () => base.repo.db.prepare("SELECT tipo, mensagem FROM alertas ORDER BY id").all() as Array<{ tipo: string; mensagem: string }>,
   };
 }
 
-test("primeira ativação registra os Atendido existentes sem imprimir", async () => {
+test("primeira ativação registra todos os Atendido, de qualquer data, sem imprimir", async () => {
   const c = cenario();
+  c.definirAntigos([resumo("5", ATENDIDO)]); // atendido há meses, fora de qualquer janela de alteração
   c.definirLista([resumo("1", ATENDIDO), resumo("2", ABERTO)]);
   const r = await executarCiclo(c.deps);
-  assert.deepEqual(r, { tipo: "baseline", registrados: 1 });
+  assert.deepEqual(r, { tipo: "baseline", registrados: 2 });
   assert.equal(c.impressoes().length, 0);
   assert.equal(c.repo.buscarPedido(c.filialId, "1")?.origem, "baseline");
+  assert.equal(c.repo.buscarPedido(c.filialId, "5")?.origem, "baseline");
   assert.equal(c.repo.buscarPedido(c.filialId, "2"), null);
-  assert.equal(c.consultas[0].desde.getTime(), AGORA.getTime() - 30 * 86_400_000);
+
+  // Depois, o pedido antigo ganha uma alteração (nota fiscal, rastreio): não imprime.
+  c.definirLista([resumo("5", ATENDIDO)]);
+  c.avancar(30_000);
+  await executarCiclo(c.deps);
+  assert.equal(c.impressoes().length, 0);
 });
 
 test("pedido novo Atendido vira 1ª via na fila, em ordem de número", async () => {
@@ -57,7 +69,7 @@ test("consulta usa o cursor menos a margem", async () => {
   await executarCiclo(c.deps);
   c.avancar(30_000);
   await executarCiclo(c.deps);
-  assert.equal(c.consultas[1].desde.getTime(), AGORA.getTime() - 5 * 60_000);
+  assert.equal(c.consultas[0].desde.getTime(), AGORA.getTime() - 5 * 60_000); // a ativação não consulta por data
 });
 
 test("pedido que aparece de novo como Atendido sem mudar não faz nada", async () => {
@@ -165,13 +177,14 @@ test("Bling desconectado ao montar a folha derruba o ciclo sem avançar o cursor
 test("cicloMonitorado registra erro do Bling e cria alerta de desconexão uma vez só", async () => {
   const c = cenario();
   const log = { info: () => {}, error: () => {} };
-  c.deps.bling = { listarPedidosAlterados: async () => { throw new ErroBlingDesconectado("revogado"); } };
+  const falha = async (): Promise<ResumoPedido[]> => { throw new ErroBlingDesconectado("revogado"); };
+  c.deps.bling = { listarPedidosAlterados: falha, listarPedidosPorSituacao: falha };
   await cicloMonitorado(c.deps, log);
   await cicloMonitorado(c.deps, log);
   assert.equal(c.repo.obterEstado("bling:erro_desde"), AGORA.toISOString());
   assert.equal(c.repo.obterEstado("bling:erro_msg"), "revogado");
   assert.deepEqual(c.alertas().map((a) => a.tipo), ["bling_desconectado"]);
-  c.deps.bling = { listarPedidosAlterados: async () => [] };
+  c.deps.bling = { listarPedidosAlterados: async () => [], listarPedidosPorSituacao: async () => [] };
   await cicloMonitorado(c.deps, log);
   assert.equal(c.repo.obterEstado("bling:erro_desde"), null);
   assert.equal(c.repo.obterEstado("bling:ultima_consulta"), AGORA.toISOString());
