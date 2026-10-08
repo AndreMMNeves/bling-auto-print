@@ -6,7 +6,8 @@ import { diaLocal } from "../tempo.ts";
 import { exigirLogin } from "./auth.ts";
 import { pagina } from "./layout.ts";
 
-type Query = { de?: string; ate?: string; vendedor?: string; pedido?: string; so?: string };
+type Query = { de?: string; ate?: string; vendedor?: string; pedido?: string; so?: string; p?: string };
+const POR_PAGINA = 50;
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
 function lerFiltro(q: Query, hoje: string): FiltroRelatorio {
@@ -22,8 +23,17 @@ function lerFiltro(q: Query, hoje: string): FiltroRelatorio {
 export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
   app.get<{ Querystring: Query }>("/relatorio", { preHandler: exigirLogin }, async (req, reply) => {
     const f = lerFiltro(req.query, diaLocal(d.agora()));
-    const linhas = d.repo.relatorio(f);
+    const todas = d.repo.relatorio(f);
     const qs = new URLSearchParams({ de: f.de, ate: f.ate, vendedor: f.vendedor ?? "", pedido: f.pedido ?? "", so: f.soReimpressoes ? "1" : "" });
+    const totalPaginas = Math.max(1, Math.ceil(todas.length / POR_PAGINA));
+    const atual = Math.min(Math.max(1, Math.floor(Number(req.query.p)) || 1), totalPaginas);
+    const linhas = todas.slice((atual - 1) * POR_PAGINA, atual * POR_PAGINA);
+    const link = (n: number) => `/relatorio?${qs}&p=${n}`;
+    const navegacao = totalPaginas > 1 ? `<nav class="paginas">
+  ${atual > 1 ? `<a class="botao secundario" href="${link(atual - 1)}">Anterior</a>` : ""}
+  <span>Página ${atual} de ${totalPaginas}</span>
+  ${atual < totalPaginas ? `<a class="botao secundario" href="${link(atual + 1)}">Próxima</a>` : ""}
+</nav>` : "";
     const corpo = linhas.map((l) => `<tr>${linhaParaColunas(l).map((c, i) =>
       i === 1 ? `<td><a href="/pedidos?numero=${encodeURIComponent(c)}">${escaparHtml(c)}</a></td>` : `<td>${escaparHtml(c)}</td>`).join("")}</tr>`).join("");
     return reply.type("text/html").send(pagina(req.usuario, "Relatório de impressões", `
@@ -36,8 +46,9 @@ export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio;
   <button>Filtrar</button>
   <a class="botao" href="/relatorio.csv?${qs}">Exportar para Excel</a>
 </form>
-<p>${linhas.length} impressão(ões)</p>
-<div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>`));
+<p class="contagem">${todas.length === 1 ? "1 impressão" : `${todas.length} impressões`}</p>
+<div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>
+${navegacao}`));
   });
 
   app.get<{ Querystring: Query }>("/relatorio.csv", { preHandler: exigirLogin }, async (req, reply) => {

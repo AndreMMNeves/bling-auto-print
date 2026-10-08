@@ -63,3 +63,29 @@ test("página do relatório exige login e mostra as linhas do dia", async () => 
   assert.equal(csv.statusCode, 200);
   assert.match(String(csv.headers["content-disposition"]), /relatorio-2026-10-08-a-2026-10-08\.csv/);
 });
+
+test("relatório mostra 50 por página com navegação; o Excel leva tudo", async () => {
+  const c = await appDeTeste();
+  for (let i = 0; i < 120; i++) {
+    const pedidoId = c.repo.inserirPedido({ filialId: c.filialId, numero: String(1000 + i), idBling: i, situacao: 9, origem: "monitor", agora: new Date("2026-10-08T13:00:00.000Z") });
+    c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, String(1000 + i)), motivo: null, usuarioId: null, agora: new Date("2026-10-08T13:00:00.000Z") });
+  }
+  const op = await entrar(c.app, "op@x.com", "senha-op");
+  const linhas = (html: string) => (html.match(/<td>HP A4<\/td>/g) ?? []).length;
+
+  const p1 = await c.app.inject({ url: "/relatorio?de=2026-10-08&ate=2026-10-08", headers: { cookie: op } });
+  assert.equal(linhas(p1.body), 50);
+  assert.match(p1.body, /Página 1 de 3/);
+  assert.match(p1.body, /120 impressões/);
+  assert.match(p1.body, /href="\/relatorio\?[^"]*p=2"/);
+
+  const p3 = await c.app.inject({ url: "/relatorio?de=2026-10-08&ate=2026-10-08&p=3", headers: { cookie: op } });
+  assert.equal(linhas(p3.body), 20);
+  assert.match(p3.body, /Página 3 de 3/);
+
+  const fora = await c.app.inject({ url: "/relatorio?de=2026-10-08&ate=2026-10-08&p=99", headers: { cookie: op } });
+  assert.match(fora.body, /Página 3 de 3/);
+
+  const csv = await c.app.inject({ url: "/relatorio.csv?de=2026-10-08&ate=2026-10-08&p=2", headers: { cookie: op } });
+  assert.equal(csv.body.trim().split("\r\n").length, 121);
+});

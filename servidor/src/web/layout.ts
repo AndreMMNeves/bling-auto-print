@@ -112,6 +112,8 @@ button.perigo { background: var(--ruim); box-shadow: 0 6px 16px -8px var(--ruim)
 .filtros { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .filtros label { margin: 0; min-width: 150px; flex: 1; }
 form.inline { display: inline; }
+.contagem { color: var(--suave); margin: 0 4px 10px; }
+.paginas { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 4px; color: var(--suave); }
 
 .erro { color: var(--ruim); font-weight: 600; }
 .mensagem {
