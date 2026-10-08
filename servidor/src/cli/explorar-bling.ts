@@ -22,6 +22,16 @@ const bling = new ClienteBling({
 const saida = join(RAIZ, "dados", "exploracao");
 mkdirSync(saida, { recursive: true });
 const salvar = (nome: string, dado: unknown) => writeFileSync(join(saida, nome), JSON.stringify(dado, null, 2));
+// Algumas permissões (Situações, Vendedores) podem não existir no aplicativo: anota e segue.
+async function tentar(nome: string, caminho: string): Promise<void> {
+  try {
+    salvar(nome, await bling.obterBruto(caminho));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log(`Aviso: ${caminho} falhou (${msg})`);
+    salvar(nome, { erro: msg });
+  }
+}
 
 async function conectar(): Promise<void> {
   if (bling.estaConectado()) return;
@@ -59,10 +69,11 @@ console.log("Pedidos alterados nos últimos 2 dias:", lista.length);
 console.log("Quantidade por id de situação:", Object.fromEntries(porSituacao));
 
 // 2) Lista bruta sem filtro de alteração, para comparar
-salvar("2-lista-bruta-pagina1.json", await bling.obterBruto("/pedidos/vendas?pagina=1&limite=20"));
+await tentar("2-lista-bruta-pagina1.json", "/pedidos/vendas?pagina=1&limite=20");
 
 // 3) Nomes das situações do módulo de vendas
-salvar("3-situacoes-modulos.json", await bling.obterBruto("/situacoes/modulos"));
+await tentar("3-situacoes-modulos.json", "/situacoes/modulos");
+await tentar("3b-atendidos-por-situacao.json", `/pedidos/vendas?pagina=1&limite=5&idsSituacoes[]=${config.bling.situacaoAtendido}`);
 
 // 4) Detalhe bruto de até 3 pedidos + produto e vendedor do primeiro
 const amostra = lista.slice(0, 3);
@@ -71,8 +82,8 @@ if (amostra[0]) {
   const det = await bling.obterPedido(amostra[0].id);
   salvar("5-pedido-normalizado.json", det);
   const prod = det.itens.find((i) => i.produtoId)?.produtoId;
-  if (prod) salvar("6-produto.json", await bling.obterBruto(`/produtos/${prod}`));
-  if (det.vendedorId) salvar("7-vendedor.json", await bling.obterBruto(`/vendedores/${det.vendedorId}`));
+  if (prod) await tentar("6-produto.json", `/produtos/${prod}`);
+  if (det.vendedorId) await tentar("7-vendedor.json", `/vendedores/${det.vendedorId}`);
 
   // 5) Página com 3 candidatos de código de barras para testar no checkout
   const candidatos: Array<[string, string]> = [
