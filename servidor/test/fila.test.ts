@@ -26,7 +26,7 @@ test("ok marca impresso e enfileira para a planilha", async () => {
   await entregarProximo(c.repo, c.impressoraId, AGORA);
   await registrarResultado(c.repo, c.impressaoId, { ok: true }, AGORA);
   assert.equal((await c.repo.buscarImpressao(c.impressaoId))!.status, "impresso");
-  const n = await uma<{ n: number }>(c.repo, "SELECT COUNT(*) AS n FROM fila_planilha");
+  const n = await uma<{ n: number }>(c.repo, "SELECT COUNT(*)::int AS n FROM fila_planilha");
   assert.equal(n.n, 1);
 });
 

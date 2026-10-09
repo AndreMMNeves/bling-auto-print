@@ -13,7 +13,7 @@ import { criarTarefasPeriodicas } from "./tarefas.ts";
 export async function montarServidor(config: Config, opts: { orcamentoMs?: number } = {}): Promise<{
   app: FastifyInstance; repo: Repositorio; tarefasPeriodicas: () => Promise<unknown>; bling: ClienteBling;
 }> {
-  const repo = new Repositorio(await abrirBanco(config.banco.url, config.banco.authToken));
+  const repo = new Repositorio(await abrirBanco(config.banco.url));
   const agora = () => new Date();
   const filialId = await repo.garantirFilial(config.filial.codigo, config.filial.nome);
   const registros = [];

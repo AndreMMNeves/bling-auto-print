@@ -14,7 +14,7 @@ import { codigoBarrasDataUri } from "../../../compartilhado/folha/codigo-barras.
 
 const config = carregarConfig(process.argv[2] ?? join(RAIZ, "servidor/config.json"));
 mkdirSync(join(RAIZ, "dados"), { recursive: true });
-const repo = new Repositorio(await abrirBanco(config.banco.url, config.banco.authToken));
+const repo = new Repositorio(await abrirBanco(config.banco.url));
 const bling = new ClienteBling({
   clientId: config.bling.clientId, clientSecret: config.bling.clientSecret,
   armazem: armazemNoBanco(repo, config.filial.codigo),

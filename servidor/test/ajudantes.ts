@@ -19,16 +19,16 @@ export async function bancoDeTeste() {
 
 // SQL direto nos testes.
 export async function todas<T = Record<string, unknown>>(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<T[]> {
-  const rs = await repo.db.execute({ sql, args });
-  return rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])) as T);
+  return (await repo.db.consultar(sql, args)).linhas as T[];
 }
 
 export async function uma<T = Record<string, unknown>>(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<T> {
   return (await todas<T>(repo, sql, ...args))[0];
 }
 
+// INSERT devolvendo o id gerado.
 export async function executar(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<number> {
-  return Number((await repo.db.execute({ sql, args })).lastInsertRowid);
+  return Number((await repo.db.consultar(`${sql} RETURNING id`, args)).linhas[0].id);
 }
 
 export function dadosFolhaExemplo(qtdItens = 2, numero = "12345"): DadosFolha {

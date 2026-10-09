@@ -10,8 +10,8 @@ export type Config = {
   porta: number;
   urlPublica: string;
   segredoSessao: string;
-  // "file:dados/expedicao.db" no PC; "libsql://<banco>.turso.io" na Vercel.
-  banco: { url: string; authToken?: string };
+  // "pglite:dados/expedicao" no PC; "postgresql://..." (Supabase, Transaction pooler) na Vercel.
+  banco: { url: string };
   filial: { codigo: string; nome: string };
   bling: {
     clientId: string;
@@ -56,7 +56,7 @@ function validar(c: Config, origem: string): Config {
 export function carregarConfig(arquivo: string): Config {
   const bruto = JSON.parse(readFileSync(arquivo, "utf8")) as Config & { google: null | { arquivoCredenciais?: string; planilhaId: string; aba: string } };
   const c = { ...bruto } as Config;
-  if (c.banco?.url?.startsWith("file:")) c.banco = { ...c.banco, url: `file:${resolve(RAIZ, c.banco.url.slice(5))}` };
+  if (c.banco?.url?.startsWith("pglite:")) c.banco = { url: `pglite:${resolve(RAIZ, c.banco.url.slice("pglite:".length))}` };
   if (bruto.google?.arquivoCredenciais) {
     c.google = {
       credenciais: JSON.parse(readFileSync(resolve(RAIZ, bruto.google.arquivoCredenciais), "utf8")),
@@ -73,7 +73,7 @@ export function carregarConfigDoAmbiente(env: Record<string, string | undefined>
     porta: n("PORTA", 3010),
     urlPublica: env.URL_PUBLICA ?? "",
     segredoSessao: env.SEGREDO_SESSAO ?? "",
-    banco: { url: env.TURSO_URL ?? "", authToken: env.TURSO_TOKEN || undefined },
+    banco: { url: env.DATABASE_URL ?? "" },
     filial: { codigo: env.FILIAL_CODIGO ?? "", nome: env.FILIAL_NOME ?? env.FILIAL_CODIGO ?? "" },
     bling: {
       clientId: env.BLING_CLIENT_ID ?? "",

@@ -89,6 +89,6 @@ test("planilha: enfileirar duas vezes não duplica", async () => {
   const id = await repo.criarImpressao({ pedidoId, impressoraId, via: 1, dados: dadosFolhaExemplo(), motivo: null, usuarioId: null, agora: AGORA });
   await repo.enfileirarPlanilha(id);
   await repo.enfileirarPlanilha(id);
-  const n = await uma<{ n: number }>(repo, "SELECT COUNT(*) AS n FROM fila_planilha");
+  const n = await uma<{ n: number }>(repo, "SELECT COUNT(*)::int AS n FROM fila_planilha");
   assert.equal(n.n, 1);
 });

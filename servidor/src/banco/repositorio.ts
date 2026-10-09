@@ -1,11 +1,10 @@
-import type { Client, InStatement, ResultSet } from "@libsql/client";
 import type { DadosFolha } from "../../../compartilhado/tipos.ts";
 import { fimDoDia, inicioDoDia } from "../../../compartilhado/tempo.ts";
+import type { Banco, Param } from "./banco.ts";
 
 export type Situacao = number;
 export type StatusImpressao = "fila" | "imprimindo" | "impresso" | "erro";
 export type TipoAlerta = "repetido" | "cancelado" | "falha_impressao" | "retomada" | "bling_desconectado";
-type Param = string | number | null;
 
 export type PedidoRow = {
   id: number; filial_id: number; numero: string; id_bling: number; situacao: Situacao;
@@ -36,30 +35,32 @@ export type NovoPedido = {
   filialId: number; numero: string; idBling: number; situacao: Situacao; origem: "baseline" | "monitor"; agora: Date;
 };
 
-function linhas<T>(rs: ResultSet): T[] {
-  return rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])) as T);
-}
+// id_bling é BIGINT (ids do Bling passam de 2^31): sai como número via float8 (exato até 2^53).
+const COLUNAS_PEDIDO = "id, filial_id, numero, id_bling::float8 AS id_bling, situacao, origem, detectado_em";
+const ehDuplicado = (e: unknown) => (e as { code?: string })?.code === "23505" || /duplicate key|unique/i.test(String((e as Error)?.message ?? e));
 
-// Todo acesso ao banco é assíncrono (Turso na Vercel, arquivo no PC local).
-// Operações que precisam ser atômicas usam um único comando SQL ou db.batch (transação).
+// Todo acesso ao banco é assíncrono (Supabase na Vercel, PGlite no PC e nos testes).
 export class Repositorio {
-  readonly db: Client;
+  readonly db: Banco;
 
-  constructor(db: Client) {
+  constructor(db: Banco) {
     this.db = db;
   }
 
   protected async um<T>(sql: string, ...args: Param[]): Promise<T | null> {
-    return linhas<T>(await this.db.execute({ sql, args }))[0] ?? null;
+    return ((await this.db.consultar(sql, args)).linhas[0] as T | undefined) ?? null;
   }
 
   protected async todos<T>(sql: string, ...args: Param[]): Promise<T[]> {
-    return linhas<T>(await this.db.execute({ sql, args }));
+    return (await this.db.consultar(sql, args)).linhas as T[];
   }
 
-  protected async exec(sql: string, ...args: Param[]): Promise<{ changes: number; id: number }> {
-    const r = await this.db.execute({ sql, args });
-    return { changes: r.rowsAffected, id: Number(r.lastInsertRowid ?? 0) };
+  protected async exec(sql: string, ...args: Param[]): Promise<number> {
+    return (await this.db.consultar(sql, args)).afetadas;
+  }
+
+  protected async inserir(sql: string, ...args: Param[]): Promise<number> {
+    return Number((await this.um<{ id: number }>(`${sql} RETURNING id`, ...args))!.id);
   }
 
   // --- estado (chave/valor) ---
@@ -73,27 +74,25 @@ export class Repositorio {
       return;
     }
     await this.exec(
-      "INSERT INTO estado (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
+      "INSERT INTO estado (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor",
       chave, valor,
     );
   }
 
   // --- filiais, agentes, impressoras ---
   async garantirFilial(codigo: string, nome: string): Promise<number> {
-    await this.exec("INSERT INTO filiais (codigo, nome) VALUES (?, ?) ON CONFLICT(codigo) DO UPDATE SET nome = excluded.nome", codigo, nome);
-    return (await this.um<{ id: number }>("SELECT id FROM filiais WHERE codigo = ?", codigo))!.id;
+    return this.inserir("INSERT INTO filiais (codigo, nome) VALUES (?, ?) ON CONFLICT (codigo) DO UPDATE SET nome = EXCLUDED.nome", codigo, nome);
   }
 
   async garantirAgente(filialId: number, a: { nome: string; token: string; impressora: string }): Promise<{ agenteId: number; impressoraId: number }> {
-    await this.exec("INSERT INTO agentes (nome, token) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET token = excluded.token", a.nome, a.token);
-    const agenteId = (await this.um<{ id: number }>("SELECT id FROM agentes WHERE nome = ?", a.nome))!.id;
-    await this.exec(
-      "INSERT INTO impressoras (filial_id, agente_id, nome_windows) VALUES (?, ?, ?) ON CONFLICT(agente_id, nome_windows) DO NOTHING",
+    const agenteId = await this.inserir(
+      "INSERT INTO agentes (nome, token) VALUES (?, ?) ON CONFLICT (nome) DO UPDATE SET token = EXCLUDED.token", a.nome, a.token,
+    );
+    const impressoraId = await this.inserir(
+      `INSERT INTO impressoras (filial_id, agente_id, nome_windows) VALUES (?, ?, ?)
+       ON CONFLICT (agente_id, nome_windows) DO UPDATE SET filial_id = EXCLUDED.filial_id`,
       filialId, agenteId, a.impressora,
     );
-    const impressoraId = (await this.um<{ id: number }>(
-      "SELECT id FROM impressoras WHERE agente_id = ? AND nome_windows = ?", agenteId, a.impressora,
-    ))!.id;
     return { agenteId, impressoraId };
   }
 
@@ -113,48 +112,48 @@ export class Repositorio {
 
   // --- pedidos ---
   async buscarPedido(filialId: number, numero: string): Promise<PedidoRow | null> {
-    return this.um<PedidoRow>("SELECT * FROM pedidos WHERE filial_id = ? AND numero = ?", filialId, numero);
+    return this.um<PedidoRow>(`SELECT ${COLUNAS_PEDIDO} FROM pedidos WHERE filial_id = ? AND numero = ?`, filialId, numero);
   }
 
   async buscarPedidoPorId(id: number): Promise<PedidoRow | null> {
-    return this.um<PedidoRow>("SELECT * FROM pedidos WHERE id = ?", id);
+    return this.um<PedidoRow>(`SELECT ${COLUNAS_PEDIDO} FROM pedidos WHERE id = ?`, id);
   }
 
   async inserirPedido(p: NovoPedido): Promise<number> {
-    return (await this.exec(
+    return this.inserir(
       "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?)",
       p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString(),
-    )).id;
+    );
   }
 
   // Primeira ativação: grava em lote, ignorando os que já existem.
   async inserirPedidosBaseline(filialId: number, lista: Array<{ numero: string; idBling: number; situacao: Situacao }>, agora: Date): Promise<number> {
     if (!lista.length) return 0;
-    const rs = await this.db.batch(lista.map((p): InStatement => ({
-      sql: "INSERT OR IGNORE INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, 'baseline', ?)",
-      args: [filialId, p.numero, p.idBling, p.situacao, agora.toISOString()],
-    })), "write");
-    return rs.reduce((s, r) => s + r.rowsAffected, 0);
+    const valores = lista.map(() => "(?, ?, ?, ?, 'baseline', ?)").join(", ");
+    const args = lista.flatMap((p) => [filialId, p.numero, p.idBling, p.situacao, agora.toISOString()]);
+    return this.exec(
+      `INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES ${valores} ON CONFLICT (filial_id, numero) DO NOTHING`,
+      ...args,
+    );
   }
 
   // Pedido novo + 1ª via numa transação só. Devolve false se o pedido já existia
   // (outro ciclo chegou antes): nesse caso nada é gravado.
   async inserirPedidoComPrimeiraVia(p: NovoPedido, impressoraId: number, dados: DadosFolha): Promise<boolean> {
     try {
-      await this.db.batch([
-        {
-          sql: "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?)",
-          args: [p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString()],
-        },
-        {
-          sql: `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, criado_em)
-                VALUES ((SELECT id FROM pedidos WHERE filial_id = ? AND numero = ?), ?, 1, ?, 'fila', ?)`,
-          args: [p.filialId, p.numero, impressoraId, JSON.stringify(dados), p.agora.toISOString()],
-        },
-      ], "write");
+      await this.db.transacao(async (consultar) => {
+        const { linhas } = await consultar(
+          "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+          [p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString()],
+        );
+        await consultar(
+          "INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, criado_em) VALUES (?, ?, 1, ?, 'fila', ?)",
+          [Number(linhas[0].id), impressoraId, JSON.stringify(dados), p.agora.toISOString()],
+        );
+      });
       return true;
     } catch (e) {
-      if (/UNIQUE/i.test(String(e instanceof Error ? e.message : e))) return false;
+      if (ehDuplicado(e)) return false;
       throw e;
     }
   }
@@ -168,26 +167,26 @@ export class Repositorio {
     pedidoId: number; impressoraId: number; via: number; dados: DadosFolha;
     motivo: string | null; usuarioId: number | null; agora: Date;
   }): Promise<number> {
-    return (await this.exec(
+    return this.inserir(
       `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, motivo, usuario_id, criado_em)
        VALUES (?, ?, ?, ?, 'fila', ?, ?, ?)`,
       i.pedidoId, i.impressoraId, i.via, JSON.stringify(i.dados), i.motivo, i.usuarioId, i.agora.toISOString(),
-    )).id;
+    );
   }
 
   // A via é calculada no próprio INSERT: dois pedidos de reimpressão ao mesmo tempo não pegam o mesmo número.
   async criarProximaVia(i: {
     pedidoId: number; impressoraId: number; dados: DadosFolha; motivo: string; usuarioId: number; agora: Date;
   }): Promise<number> {
-    return (await this.exec(
+    return this.inserir(
       `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, motivo, usuario_id, criado_em)
        VALUES (?, ?, (SELECT COALESCE(MAX(via), 0) + 1 FROM impressoes WHERE pedido_id = ?), ?, 'fila', ?, ?, ?)`,
       i.pedidoId, i.impressoraId, i.pedidoId, JSON.stringify(i.dados), i.motivo, i.usuarioId, i.agora.toISOString(),
-    )).id;
+    );
   }
 
   async proximaVia(pedidoId: number): Promise<number> {
-    return (await this.um<{ v: number }>("SELECT COALESCE(MAX(via), 0) + 1 AS v FROM impressoes WHERE pedido_id = ?", pedidoId))!.v;
+    return (await this.um<{ v: number }>("SELECT (COALESCE(MAX(via), 0) + 1)::int AS v FROM impressoes WHERE pedido_id = ?", pedidoId))!.v;
   }
 
   async ultimaImpressao(pedidoId: number): Promise<ImpressaoRow | null> {
@@ -207,11 +206,11 @@ export class Repositorio {
     return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE id = ?", id);
   }
 
-  // Um único UPDATE ... RETURNING: dois agentes nunca pegam o mesmo trabalho.
+  // Um único UPDATE com SKIP LOCKED: dois agentes nunca pegam o mesmo trabalho.
   async pegarProximaDaFila(impressoraId: number, agora: Date): Promise<ImpressaoRow | null> {
     return this.um<ImpressaoRow>(
       `UPDATE impressoes SET status = 'imprimindo', iniciado_em = ?
-       WHERE id = (SELECT id FROM impressoes WHERE impressora_id = ? AND status = 'fila' ORDER BY id LIMIT 1)
+       WHERE id = (SELECT id FROM impressoes WHERE impressora_id = ? AND status = 'fila' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED)
        RETURNING *`,
       agora.toISOString(), impressoraId,
     );
@@ -223,10 +222,10 @@ export class Repositorio {
 
   // Marca impresso e enfileira para a planilha na mesma transação.
   async registrarImpressa(id: number, agora: Date): Promise<void> {
-    await this.db.batch([
-      { sql: "UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", args: [agora.toISOString(), id] },
-      { sql: "INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", args: [id] },
-    ], "write");
+    await this.db.transacao(async (consultar) => {
+      await consultar("UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", [agora.toISOString(), id]);
+      await consultar("INSERT INTO fila_planilha (impressao_id) VALUES (?) ON CONFLICT (impressao_id) DO NOTHING", [id]);
+    });
   }
 
   async marcarFalha(id: number, erro: string, novoStatus: "fila" | "erro"): Promise<void> {
@@ -243,16 +242,14 @@ export class Repositorio {
   }
 
   async reenfileirarErros(impressoraId: number): Promise<number> {
-    return (await this.exec(
-      "UPDATE impressoes SET status = 'fila', tentativas = 0 WHERE impressora_id = ? AND status = 'erro'", impressoraId,
-    )).changes;
+    return this.exec("UPDATE impressoes SET status = 'fila', tentativas = 0 WHERE impressora_id = ? AND status = 'erro'", impressoraId);
   }
 
   // --- relatório ---
   static readonly SQL_RELATORIO = `
-    SELECT i.id AS impressaoId, i.criado_em AS criadoEm, i.impresso_em AS impressoEm, p.numero AS numero,
-      json_extract(i.dados_json, '$.cliente.nome') AS cliente, json_extract(i.dados_json, '$.pedido.vendedor') AS vendedor,
-      json_array_length(i.dados_json, '$.itens') AS itens, i.via AS via, i.status AS status,
+    SELECT i.id AS "impressaoId", i.criado_em AS "criadoEm", i.impresso_em AS "impressoEm", p.numero AS numero,
+      i.dados_json::jsonb #>> '{cliente,nome}' AS cliente, i.dados_json::jsonb #>> '{pedido,vendedor}' AS vendedor,
+      jsonb_array_length(i.dados_json::jsonb -> 'itens') AS itens, i.via AS via, i.status AS status,
       im.nome_windows AS impressora, u.nome AS usuario, i.motivo AS motivo
     FROM impressoes i
     JOIN pedidos p ON p.id = i.pedido_id
@@ -262,7 +259,7 @@ export class Repositorio {
   async relatorio(f: FiltroRelatorio): Promise<LinhaRelatorio[]> {
     const onde = ["i.criado_em BETWEEN ? AND ?"];
     const params: Param[] = [inicioDoDia(f.de), fimDoDia(f.ate)];
-    if (f.vendedor) { onde.push("json_extract(i.dados_json, '$.pedido.vendedor') LIKE ?"); params.push(`%${f.vendedor}%`); }
+    if (f.vendedor) { onde.push("i.dados_json::jsonb #>> '{pedido,vendedor}' ILIKE ?"); params.push(`%${f.vendedor}%`); }
     if (f.pedido) { onde.push("p.numero = ?"); params.push(f.pedido.trim()); }
     if (f.soReimpressoes) onde.push("i.via > 1");
     return this.todos<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE ${onde.join(" AND ")} ORDER BY i.id DESC`, ...params);
@@ -274,10 +271,10 @@ export class Repositorio {
 
   // --- alertas ---
   async criarAlerta(a: { tipo: TipoAlerta; pedidoId: number | null; mensagem: string; agora: Date }): Promise<number> {
-    return (await this.exec(
+    return this.inserir(
       "INSERT INTO alertas (tipo, pedido_id, mensagem, criado_em) VALUES (?, ?, ?, ?)",
       a.tipo, a.pedidoId, a.mensagem, a.agora.toISOString(),
-    )).id;
+    );
   }
 
   async alertaPendenteDoTipo(tipo: TipoAlerta): Promise<boolean> {
@@ -317,14 +314,13 @@ export class Repositorio {
   }
 
   async contadoresDoDia(dia: string): Promise<{ impressos: number; naFila: number; alertas: number }> {
-    const r = await this.um<{ impressos: number; naFila: number; alertas: number }>(
+    return (await this.um<{ impressos: number; naFila: number; alertas: number }>(
       `SELECT
-        (SELECT COUNT(*) FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?) AS impressos,
-        (SELECT COUNT(*) FROM impressoes WHERE status IN ('fila', 'imprimindo')) AS naFila,
-        (SELECT COUNT(*) FROM alertas WHERE resolvido_em IS NULL) AS alertas`,
+        (SELECT COUNT(*)::int FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?) AS impressos,
+        (SELECT COUNT(*)::int FROM impressoes WHERE status IN ('fila', 'imprimindo')) AS "naFila",
+        (SELECT COUNT(*)::int FROM alertas WHERE resolvido_em IS NULL) AS alertas`,
       inicioDoDia(dia), fimDoDia(dia),
-    );
-    return r!;
+    ))!;
   }
 
   async ultimaComunicacaoAgente(impressoraId: number): Promise<string | null> {
@@ -334,7 +330,7 @@ export class Repositorio {
   }
 
   async contarErros(impressoraId: number): Promise<number> {
-    return (await this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId))!.n;
+    return (await this.um<{ n: number }>("SELECT COUNT(*)::int AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId))!.n;
   }
 
   // --- usuários ---
@@ -344,10 +340,10 @@ export class Repositorio {
   }
 
   async criarUsuario(u: { nome: string; email: string; senhaHash: string; papel: Papel }): Promise<number> {
-    return (await this.exec(
+    return this.inserir(
       "INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)",
       u.nome, u.email.trim().toLowerCase(), u.senhaHash, u.papel,
-    )).id;
+    );
   }
 
   async buscarUsuarioPorEmail(email: string): Promise<UsuarioRow | null> {
@@ -368,7 +364,7 @@ export class Repositorio {
 
   // --- planilha ---
   async enfileirarPlanilha(impressaoId: number): Promise<void> {
-    await this.exec("INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", impressaoId);
+    await this.exec("INSERT INTO fila_planilha (impressao_id) VALUES (?) ON CONFLICT (impressao_id) DO NOTHING", impressaoId);
   }
 
   async pendentesPlanilha(limite: number): Promise<number[]> {
@@ -379,11 +375,11 @@ export class Repositorio {
 
   async marcarPlanilhaEnviada(impressaoIds: number[], agora: Date): Promise<void> {
     if (!impressaoIds.length) return;
-    await this.db.batch(impressaoIds.map((id) => ({ sql: "UPDATE fila_planilha SET enviado_em = ? WHERE impressao_id = ?", args: [agora.toISOString(), id] })), "write");
+    await this.exec(`UPDATE fila_planilha SET enviado_em = ? WHERE impressao_id IN (${impressaoIds.map(() => "?").join(", ")})`, agora.toISOString(), ...impressaoIds);
   }
 
   async registrarFalhaPlanilha(impressaoIds: number[]): Promise<void> {
     if (!impressaoIds.length) return;
-    await this.db.batch(impressaoIds.map((id) => ({ sql: "UPDATE fila_planilha SET tentativas = tentativas + 1 WHERE impressao_id = ?", args: [id] })), "write");
+    await this.exec(`UPDATE fila_planilha SET tentativas = tentativas + 1 WHERE impressao_id IN (${impressaoIds.map(() => "?").join(", ")})`, ...impressaoIds);
   }
 }

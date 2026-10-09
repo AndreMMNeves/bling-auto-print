@@ -3,14 +3,6 @@
 import { build } from "esbuild";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 
-// Na Vercel o banco é sempre o Turso via HTTP: o cliente local (com binário nativo) vira o cliente web.
-const clienteWeb = {
-  name: "libsql-web",
-  setup(b) {
-    b.onResolve({ filter: /^@libsql\/client$/ }, (args) => b.resolve("@libsql/client/web", { kind: args.kind, resolveDir: args.resolveDir }));
-  },
-};
-
 const saida = ".vercel/output";
 const funcao = `${saida}/functions/index.func`;
 rmSync(saida, { recursive: true, force: true });
@@ -23,7 +15,8 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  plugins: [clienteWeb],
+  // Na Vercel o banco é o Supabase (postgres.js); o PGlite (Postgres embutido do PC) fica de fora.
+  external: ["@electric-sql/pglite"],
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
   logLevel: "warning",
 });

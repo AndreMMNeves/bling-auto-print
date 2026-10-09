@@ -2,7 +2,7 @@
   "porta": 3010,
   "urlPublica": "http://localhost:3010",
   "segredoSessao": "TROQUE-por-um-texto-aleatorio-com-40-caracteres-ou-mais",
-  "banco": { "url": "file:dados/expedicao.db" },
+  "banco": { "url": "pglite:dados/expedicao" },
   "filial": { "codigo": "ES", "nome": "Espírito Santo" },
   "bling": {
     "clientId": "",
