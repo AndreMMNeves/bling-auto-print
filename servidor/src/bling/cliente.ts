@@ -1,10 +1,10 @@
-import { FUSO } from "../tempo.ts";
+import { FUSO } from "../../../compartilhado/tempo.ts";
 
 export const BLING_API = "https://api.bling.com.br/Api/v3";
 export const BLING_AUTORIZAR = "https://www.bling.com.br/Api/v3/oauth/authorize";
 
 export type Tokens = { accessToken: string; refreshToken: string; expiraEm: string };
-export type ArmazemTokens = { ler(): Tokens | null; gravar(t: Tokens): void };
+export type ArmazemTokens = { ler(): Promise<Tokens | null>; gravar(t: Tokens): Promise<void> };
 export type ResumoPedido = { id: number; numero: string; numeroLoja: string | null; situacaoId: number };
 export type PedidoBling = {
   id: number;
@@ -55,7 +55,6 @@ export function formatarDataBling(d: Date): string {
 
 const POR_PAGINA = 100;
 const MAX_PAGINAS = 20;
-const MAX_PAGINAS_SITUACAO = 2000; // 200 mil pedidos
 
 const ouNulo = (v: unknown): string | null => (v === undefined || v === null || v === "" ? null : String(v));
 
@@ -73,8 +72,8 @@ export class ClienteBling {
     };
   }
 
-  estaConectado(): boolean {
-    return this.#o.armazem.ler() !== null;
+  async estaConectado(): Promise<boolean> {
+    return (await this.#o.armazem.ler()) !== null;
   }
 
   urlAutorizacao(state: string): string {
@@ -118,19 +117,13 @@ export class ClienteBling {
     return [...vistos.values()];
   }
 
-  // Usado só na primeira ativação, para registrar tudo o que já está Atendido.
-  async listarPedidosPorSituacao(situacaoId: number): Promise<ResumoPedido[]> {
-    const vistos = new Map<number, ResumoPedido>();
-    for (let pagina = 1; ; pagina++) {
-      if (pagina > MAX_PAGINAS_SITUACAO) throw new ErroBling(0, `Mais de ${MAX_PAGINAS_SITUACAO} páginas de pedidos na situação ${situacaoId}.`);
-      const q = new URLSearchParams({ pagina: String(pagina), limite: String(POR_PAGINA), "idsSituacoes[]": String(situacaoId) });
-      const j = (await this.#get(`/pedidos/vendas?${q}`)) as { data?: any[] };
-      const data = j.data ?? [];
-      for (const p of data) {
-        vistos.set(Number(p.id), { id: Number(p.id), numero: String(p.numero), numeroLoja: ouNulo(p.numeroLoja), situacaoId: Number(p.situacao?.id) });
-      }
-      if (data.length < POR_PAGINA) return [...vistos.values()];
-    }
+  // Usado só na primeira ativação (uma página por vez), para registrar tudo o que já está Atendido.
+  async paginaPorSituacao(situacaoId: number, pagina: number): Promise<ResumoPedido[]> {
+    const q = new URLSearchParams({ pagina: String(pagina), limite: String(POR_PAGINA), "idsSituacoes[]": String(situacaoId) });
+    const j = (await this.#get(`/pedidos/vendas?${q}`)) as { data?: any[] };
+    return (j.data ?? []).map((p) => ({
+      id: Number(p.id), numero: String(p.numero), numeroLoja: ouNulo(p.numeroLoja), situacaoId: Number(p.situacao?.id),
+    }));
   }
 
   async #paginaAlterados(desde: Date, ate: Date, pagina: number): Promise<ResumoPedido[]> {
@@ -201,7 +194,7 @@ export class ClienteBling {
       throw new ErroBling(r.status, `Erro ao obter token do Bling (${r.status}): ${texto}`);
     }
     const j = (await r.json()) as { access_token: string; refresh_token: string; expires_in: number };
-    this.#o.armazem.gravar({
+    await this.#o.armazem.gravar({
       accessToken: j.access_token,
       refreshToken: j.refresh_token,
       expiraEm: new Date(this.#o.agora().getTime() + j.expires_in * 1000).toISOString(),
@@ -209,11 +202,11 @@ export class ClienteBling {
   }
 
   async #tokenValido(): Promise<string> {
-    const t = this.#o.armazem.ler();
+    const t = await this.#o.armazem.ler();
     if (!t) throw new ErroBlingDesconectado("O Bling ainda não foi conectado.");
     if (new Date(t.expiraEm).getTime() - this.#o.agora().getTime() < 60_000) {
       await this.#pedirToken({ grant_type: "refresh_token", refresh_token: t.refreshToken });
-      return this.#o.armazem.ler()!.accessToken;
+      return (await this.#o.armazem.ler())!.accessToken;
     }
     return t.accessToken;
   }
@@ -228,7 +221,7 @@ export class ClienteBling {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
     if (r.status === 401 && tentativa === 0) {
-      await this.#pedirToken({ grant_type: "refresh_token", refresh_token: this.#o.armazem.ler()!.refreshToken });
+      await this.#pedirToken({ grant_type: "refresh_token", refresh_token: (await this.#o.armazem.ler())!.refreshToken });
       return this.#get(caminho, 1);
     }
     if (r.status === 429 && tentativa < 3) {

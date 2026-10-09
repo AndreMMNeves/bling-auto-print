@@ -1,5 +1,5 @@
 import puppeteer, { type Browser } from "puppeteer-core";
-import type { DadosFolha, Via } from "../../../compartilhado/tipos.ts";
+import type { DadosFolha, Via } from "../tipos.ts";
 import { codigoBarrasDataUri } from "./codigo-barras.ts";
 import { renderizarFolha, type CodigosFolha } from "./html.ts";
 

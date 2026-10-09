@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AlertaView, Repositorio } from "../banco/repositorio.ts";
-import { escaparHtml } from "../html-util.ts";
-import { formatarDataHora } from "../tempo.ts";
+import { escaparHtml } from "../../../compartilhado/html-util.ts";
+import { formatarDataHora } from "../../../compartilhado/tempo.ts";
 import { exigirLogin, exigirSupervisor, type UsuarioSessao } from "./auth.ts";
 import { pagina } from "./layout.ts";
 
@@ -24,10 +24,10 @@ export function listaAlertas(alertas: AlertaView[], usuario: UsuarioSessao): str
 
 export function registrarAlertas(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
   app.get("/alertas", { preHandler: exigirLogin }, async (req, reply) =>
-    reply.type("text/html").send(pagina(req.usuario, "Alertas", listaAlertas(d.repo.alertasPendentes(), req.usuario!), { atualizarSegundos: 30 })));
+    reply.type("text/html").send(pagina(req.usuario, "Alertas", listaAlertas(await d.repo.alertasPendentes(), req.usuario!), { atualizarSegundos: 30 })));
 
   app.post<{ Params: { id: string } }>("/alertas/:id/resolver", { preHandler: exigirSupervisor }, async (req, reply) => {
-    d.repo.resolverAlerta(Number(req.params.id), req.usuario!.id, d.agora());
+    await d.repo.resolverAlerta(Number(req.params.id), req.usuario!.id, d.agora());
     return reply.redirect(String(req.headers.referer ?? "/alertas"));
   });
 }

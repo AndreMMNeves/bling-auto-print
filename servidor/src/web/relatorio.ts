@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { FiltroRelatorio, Repositorio } from "../banco/repositorio.ts";
-import { escaparHtml } from "../html-util.ts";
+import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import { COLUNAS_RELATORIO, gerarCsv, linhaParaColunas } from "../relatorio.ts";
-import { diaLocal } from "../tempo.ts";
+import { diaLocal } from "../../../compartilhado/tempo.ts";
 import { exigirLogin } from "./auth.ts";
 import { pagina } from "./layout.ts";
 
@@ -23,7 +23,7 @@ function lerFiltro(q: Query, hoje: string): FiltroRelatorio {
 export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
   app.get<{ Querystring: Query }>("/relatorio", { preHandler: exigirLogin }, async (req, reply) => {
     const f = lerFiltro(req.query, diaLocal(d.agora()));
-    const todas = d.repo.relatorio(f);
+    const todas = await d.repo.relatorio(f);
     const qs = new URLSearchParams({ de: f.de, ate: f.ate, vendedor: f.vendedor ?? "", pedido: f.pedido ?? "", so: f.soReimpressoes ? "1" : "" });
     const totalPaginas = Math.max(1, Math.ceil(todas.length / POR_PAGINA));
     const atual = Math.min(Math.max(1, Math.floor(Number(req.query.p)) || 1), totalPaginas);
@@ -56,6 +56,6 @@ ${navegacao}`));
     return reply
       .type("text/csv; charset=utf-8")
       .header("Content-Disposition", `attachment; filename="relatorio-${f.de}-a-${f.ate}.csv"`)
-      .send(gerarCsv(d.repo.relatorio(f)));
+      .send(gerarCsv(await d.repo.relatorio(f)));
   });
 }

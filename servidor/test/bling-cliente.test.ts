@@ -20,7 +20,7 @@ function fetchFalso(respostas: Array<Resp | ((url: string, init?: RequestInit) =
 
 function armazemMemoria(inicial: Tokens | null = null) {
   let t = inicial;
-  return { ler: () => t, gravar: (n: Tokens) => { t = n; } };
+  return { ler: async () => t, gravar: async (n: Tokens) => { t = n; } };
 }
 
 const tokenValido = (): Tokens => ({ accessToken: "A1", refreshToken: "R1", expiraEm: new Date(AGORA.getTime() + 3600_000).toISOString() });
@@ -32,7 +32,7 @@ function cliente(f: typeof fetch, armazem = armazemMemoria(tokenValido())) {
   });
 }
 
-test("urlAutorizacao leva client_id e state", () => {
+test("urlAutorizacao leva client_id e state", async () => {
   const u = new URL(cliente(fetchFalso([]).fetch).urlAutorizacao("abc"));
   assert.equal(u.searchParams.get("client_id"), "cid");
   assert.equal(u.searchParams.get("state"), "abc");
@@ -47,7 +47,7 @@ test("trocarCodigo usa Basic auth e guarda tokens com validade", async () => {
   assert.equal(h.Authorization, `Basic ${Buffer.from("cid:seg").toString("base64")}`);
   assert.match(String(chamadas[0].init!.body), /grant_type=authorization_code/);
   assert.match(String(chamadas[0].init!.body), /code=COD/);
-  assert.deepEqual(armazem.ler(), { accessToken: "A", refreshToken: "R", expiraEm: new Date(AGORA.getTime() + 21600_000).toISOString() });
+  assert.deepEqual(await armazem.ler(), { accessToken: "A", refreshToken: "R", expiraEm: new Date(AGORA.getTime() + 21600_000).toISOString() });
 });
 
 test("renova o token quando falta menos de 1 minuto", async () => {
@@ -78,7 +78,7 @@ test("refresh recusado vira ErroBlingDesconectado", async () => {
 
 test("sem tokens = desconectado", async () => {
   const c = cliente(fetchFalso([]).fetch, armazemMemoria(null));
-  assert.equal(c.estaConectado(), false);
+  assert.equal(await c.estaConectado(), false);
   await assert.rejects(c.obterBruto("/teste"), ErroBlingDesconectado);
 });
 
@@ -117,7 +117,7 @@ test("listarPedidosAlterados desiste com erro se o Bling não paginar direito", 
   await assert.rejects(cliente(b.fetch).listarPedidosAlterados(new Date(em.getTime() - 1000), new Date(em.getTime() + 1000)), /páginas/);
 });
 
-test("formatarDataBling usa horário de São Paulo", () => {
+test("formatarDataBling usa horário de São Paulo", async () => {
   assert.equal(formatarDataBling(AGORA), "2026-10-08 14:32:00");
 });
 
@@ -142,20 +142,19 @@ test("obterPedido normaliza campos ausentes", async () => {
   assert.equal(p.observacoes, null);
 });
 
-test("armazemNoBanco guarda tokens por filial", () => {
-  const { repo } = bancoDeTeste();
+test("armazemNoBanco guarda tokens por filial", async () => {
+  const { repo } = await bancoDeTeste();
   const a = armazemNoBanco(repo, "ES");
-  assert.equal(a.ler(), null);
-  a.gravar(tokenValido());
-  assert.deepEqual(armazemNoBanco(repo, "ES").ler(), tokenValido());
-  assert.equal(armazemNoBanco(repo, "SP").ler(), null);
+  assert.equal(await a.ler(), null);
+  await a.gravar(tokenValido());
+  assert.deepEqual(await armazemNoBanco(repo, "ES").ler(), tokenValido());
+  assert.equal(await armazemNoBanco(repo, "SP").ler(), null);
 });
 
-test("listarPedidosPorSituacao pagina pela situação até acabar", async () => {
-  const pagina = (n: number, ini: number) => Array.from({ length: n }, (_, i) => ({ id: ini + i, numero: ini + i, situacao: { id: 9 } }));
-  const { fetch, chamadas } = fetchFalso([{ json: { data: pagina(100, 1) } }, { json: { data: pagina(7, 101) } }]);
-  const lista = await cliente(fetch).listarPedidosPorSituacao(9);
-  assert.equal(lista.length, 107);
+test("paginaPorSituacao busca uma página filtrando pela situação", async () => {
+  const { fetch, chamadas } = fetchFalso([{ json: { data: [{ id: 101, numero: 101, situacao: { id: 9 } }] } }]);
+  const lista = await cliente(fetch).paginaPorSituacao(9, 2);
+  assert.deepEqual(lista, [{ id: 101, numero: "101", numeroLoja: null, situacaoId: 9 }]);
   assert.match(decodeURIComponent(chamadas[0].url), /idsSituacoes\[\]=9/);
-  assert.match(chamadas[1].url, /pagina=2/);
+  assert.match(chamadas[0].url, /pagina=2/);
 });

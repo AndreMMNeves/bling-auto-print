@@ -10,11 +10,11 @@ import { abrirBanco } from "../banco/banco.ts";
 import { Repositorio } from "../banco/repositorio.ts";
 import { ClienteBling } from "../bling/cliente.ts";
 import { armazemNoBanco } from "../bling/armazem.ts";
-import { codigoBarrasDataUri } from "../folha/codigo-barras.ts";
+import { codigoBarrasDataUri } from "../../../compartilhado/folha/codigo-barras.ts";
 
 const config = carregarConfig(process.argv[2] ?? join(RAIZ, "servidor/config.json"));
 mkdirSync(join(RAIZ, "dados"), { recursive: true });
-const repo = new Repositorio(abrirBanco(config.arquivoBanco));
+const repo = new Repositorio(await abrirBanco(config.banco.url, config.banco.authToken));
 const bling = new ClienteBling({
   clientId: config.bling.clientId, clientSecret: config.bling.clientSecret,
   armazem: armazemNoBanco(repo, config.filial.codigo),
@@ -34,7 +34,7 @@ async function tentar(nome: string, caminho: string): Promise<void> {
 }
 
 async function conectar(): Promise<void> {
-  if (bling.estaConectado()) return;
+  if (await bling.estaConectado()) return;
   const state = randomBytes(16).toString("hex");
   const porta = Number(new URL(config.urlPublica).port || 80);
   await new Promise<void>((ok, falha) => {

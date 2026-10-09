@@ -2,8 +2,8 @@ import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
-import { GeradorPdf } from "../src/folha/pdf.ts";
-import { dadosFolhaExemplo } from "./ajudantes.ts";
+import { GeradorPdf } from "../folha/pdf.ts";
+import { dadosFolhaExemplo } from "../../servidor/test/ajudantes.ts";
 
 const CHROME = process.env.CHROME_PATH ?? "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const pular = existsSync(CHROME) ? false : `Chrome não encontrado em ${CHROME}`;

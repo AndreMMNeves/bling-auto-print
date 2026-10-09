@@ -1,5 +1,5 @@
 import type { LinhaRelatorio, StatusImpressao } from "./banco/repositorio.ts";
-import { formatarDataHora } from "./tempo.ts";
+import { formatarDataHora } from "../../compartilhado/tempo.ts";
 
 export const ROTULO_STATUS: Record<StatusImpressao, string> = {
   fila: "Na fila", imprimindo: "Imprimindo", impresso: "Impresso", erro: "Erro",

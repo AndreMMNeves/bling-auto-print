@@ -1,7 +1,6 @@
-import type { DatabaseSync } from "node:sqlite";
+import type { Client, InStatement, ResultSet } from "@libsql/client";
 import type { DadosFolha } from "../../../compartilhado/tipos.ts";
-import { fimDoDia, inicioDoDia } from "../tempo.ts";
-import { transacao } from "./banco.ts";
+import { fimDoDia, inicioDoDia } from "../../../compartilhado/tempo.ts";
 
 export type Situacao = number;
 export type StatusImpressao = "fila" | "imprimindo" | "impresso" | "erro";
@@ -33,64 +32,73 @@ export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: 
 export type AgenteRow = {
   id: number; nome: string; ultima_comunicacao: string | null; impressora_id: number; impressora_nome: string;
 };
+export type NovoPedido = {
+  filialId: number; numero: string; idBling: number; situacao: Situacao; origem: "baseline" | "monitor"; agora: Date;
+};
 
+function linhas<T>(rs: ResultSet): T[] {
+  return rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])) as T);
+}
+
+// Todo acesso ao banco é assíncrono (Turso na Vercel, arquivo no PC local).
+// Operações que precisam ser atômicas usam um único comando SQL ou db.batch (transação).
 export class Repositorio {
-  readonly db: DatabaseSync;
+  readonly db: Client;
 
-  constructor(db: DatabaseSync) {
+  constructor(db: Client) {
     this.db = db;
   }
 
-  protected um<T>(sql: string, ...p: Param[]): T | null {
-    return (this.db.prepare(sql).get(...p) as unknown as T | undefined) ?? null;
+  protected async um<T>(sql: string, ...args: Param[]): Promise<T | null> {
+    return linhas<T>(await this.db.execute({ sql, args }))[0] ?? null;
   }
 
-  protected todos<T>(sql: string, ...p: Param[]): T[] {
-    return this.db.prepare(sql).all(...p) as unknown as T[];
+  protected async todos<T>(sql: string, ...args: Param[]): Promise<T[]> {
+    return linhas<T>(await this.db.execute({ sql, args }));
   }
 
-  protected exec(sql: string, ...p: Param[]): { changes: number; id: number } {
-    const r = this.db.prepare(sql).run(...p);
-    return { changes: Number(r.changes), id: Number(r.lastInsertRowid) };
+  protected async exec(sql: string, ...args: Param[]): Promise<{ changes: number; id: number }> {
+    const r = await this.db.execute({ sql, args });
+    return { changes: r.rowsAffected, id: Number(r.lastInsertRowid ?? 0) };
   }
 
   // --- estado (chave/valor) ---
-  obterEstado(chave: string): string | null {
-    return this.um<{ valor: string }>("SELECT valor FROM estado WHERE chave = ?", chave)?.valor ?? null;
+  async obterEstado(chave: string): Promise<string | null> {
+    return (await this.um<{ valor: string }>("SELECT valor FROM estado WHERE chave = ?", chave))?.valor ?? null;
   }
 
-  definirEstado(chave: string, valor: string | null): void {
+  async definirEstado(chave: string, valor: string | null): Promise<void> {
     if (valor === null) {
-      this.exec("DELETE FROM estado WHERE chave = ?", chave);
+      await this.exec("DELETE FROM estado WHERE chave = ?", chave);
       return;
     }
-    this.exec(
+    await this.exec(
       "INSERT INTO estado (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
       chave, valor,
     );
   }
 
   // --- filiais, agentes, impressoras ---
-  garantirFilial(codigo: string, nome: string): number {
-    this.exec("INSERT INTO filiais (codigo, nome) VALUES (?, ?) ON CONFLICT(codigo) DO UPDATE SET nome = excluded.nome", codigo, nome);
-    return this.um<{ id: number }>("SELECT id FROM filiais WHERE codigo = ?", codigo)!.id;
+  async garantirFilial(codigo: string, nome: string): Promise<number> {
+    await this.exec("INSERT INTO filiais (codigo, nome) VALUES (?, ?) ON CONFLICT(codigo) DO UPDATE SET nome = excluded.nome", codigo, nome);
+    return (await this.um<{ id: number }>("SELECT id FROM filiais WHERE codigo = ?", codigo))!.id;
   }
 
-  garantirAgente(filialId: number, a: { nome: string; token: string; impressora: string }): { agenteId: number; impressoraId: number } {
-    this.exec("INSERT INTO agentes (nome, token) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET token = excluded.token", a.nome, a.token);
-    const agenteId = this.um<{ id: number }>("SELECT id FROM agentes WHERE nome = ?", a.nome)!.id;
-    this.exec(
+  async garantirAgente(filialId: number, a: { nome: string; token: string; impressora: string }): Promise<{ agenteId: number; impressoraId: number }> {
+    await this.exec("INSERT INTO agentes (nome, token) VALUES (?, ?) ON CONFLICT(nome) DO UPDATE SET token = excluded.token", a.nome, a.token);
+    const agenteId = (await this.um<{ id: number }>("SELECT id FROM agentes WHERE nome = ?", a.nome))!.id;
+    await this.exec(
       "INSERT INTO impressoras (filial_id, agente_id, nome_windows) VALUES (?, ?, ?) ON CONFLICT(agente_id, nome_windows) DO NOTHING",
       filialId, agenteId, a.impressora,
     );
-    const impressoraId = this.um<{ id: number }>(
+    const impressoraId = (await this.um<{ id: number }>(
       "SELECT id FROM impressoras WHERE agente_id = ? AND nome_windows = ?", agenteId, a.impressora,
-    )!.id;
+    ))!.id;
     return { agenteId, impressoraId };
   }
 
   // Se a impressora do agente mudar na config, vale a mais recente.
-  buscarAgentePorToken(token: string): AgenteRow | null {
+  async buscarAgentePorToken(token: string): Promise<AgenteRow | null> {
     return this.um<AgenteRow>(
       `SELECT a.id, a.nome, a.ultima_comunicacao, i.id AS impressora_id, i.nome_windows AS impressora_nome
        FROM agentes a JOIN impressoras i ON i.agente_id = a.id
@@ -99,53 +107,94 @@ export class Repositorio {
     );
   }
 
-  registrarComunicacaoAgente(agenteId: number, agora: Date): void {
-    this.exec("UPDATE agentes SET ultima_comunicacao = ? WHERE id = ?", agora.toISOString(), agenteId);
+  async registrarComunicacaoAgente(agenteId: number, agora: Date): Promise<void> {
+    await this.exec("UPDATE agentes SET ultima_comunicacao = ? WHERE id = ?", agora.toISOString(), agenteId);
   }
 
   // --- pedidos ---
-  buscarPedido(filialId: number, numero: string): PedidoRow | null {
+  async buscarPedido(filialId: number, numero: string): Promise<PedidoRow | null> {
     return this.um<PedidoRow>("SELECT * FROM pedidos WHERE filial_id = ? AND numero = ?", filialId, numero);
   }
 
-  buscarPedidoPorId(id: number): PedidoRow | null {
+  async buscarPedidoPorId(id: number): Promise<PedidoRow | null> {
     return this.um<PedidoRow>("SELECT * FROM pedidos WHERE id = ?", id);
   }
 
-  inserirPedido(p: {
-    filialId: number; numero: string; idBling: number; situacao: Situacao; origem: "baseline" | "monitor"; agora: Date;
-  }): number {
-    return this.exec(
+  async inserirPedido(p: NovoPedido): Promise<number> {
+    return (await this.exec(
       "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?)",
       p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString(),
-    ).id;
+    )).id;
   }
 
-  atualizarSituacao(pedidoId: number, situacao: Situacao): void {
-    this.exec("UPDATE pedidos SET situacao = ? WHERE id = ?", situacao, pedidoId);
+  // Primeira ativação: grava em lote, ignorando os que já existem.
+  async inserirPedidosBaseline(filialId: number, lista: Array<{ numero: string; idBling: number; situacao: Situacao }>, agora: Date): Promise<number> {
+    if (!lista.length) return 0;
+    const rs = await this.db.batch(lista.map((p): InStatement => ({
+      sql: "INSERT OR IGNORE INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, 'baseline', ?)",
+      args: [filialId, p.numero, p.idBling, p.situacao, agora.toISOString()],
+    })), "write");
+    return rs.reduce((s, r) => s + r.rowsAffected, 0);
+  }
+
+  // Pedido novo + 1ª via numa transação só. Devolve false se o pedido já existia
+  // (outro ciclo chegou antes): nesse caso nada é gravado.
+  async inserirPedidoComPrimeiraVia(p: NovoPedido, impressoraId: number, dados: DadosFolha): Promise<boolean> {
+    try {
+      await this.db.batch([
+        {
+          sql: "INSERT INTO pedidos (filial_id, numero, id_bling, situacao, origem, detectado_em) VALUES (?, ?, ?, ?, ?, ?)",
+          args: [p.filialId, p.numero, p.idBling, p.situacao, p.origem, p.agora.toISOString()],
+        },
+        {
+          sql: `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, criado_em)
+                VALUES ((SELECT id FROM pedidos WHERE filial_id = ? AND numero = ?), ?, 1, ?, 'fila', ?)`,
+          args: [p.filialId, p.numero, impressoraId, JSON.stringify(dados), p.agora.toISOString()],
+        },
+      ], "write");
+      return true;
+    } catch (e) {
+      if (/UNIQUE/i.test(String(e instanceof Error ? e.message : e))) return false;
+      throw e;
+    }
+  }
+
+  async atualizarSituacao(pedidoId: number, situacao: Situacao): Promise<void> {
+    await this.exec("UPDATE pedidos SET situacao = ? WHERE id = ?", situacao, pedidoId);
   }
 
   // --- impressões ---
-  criarImpressao(i: {
+  async criarImpressao(i: {
     pedidoId: number; impressoraId: number; via: number; dados: DadosFolha;
     motivo: string | null; usuarioId: number | null; agora: Date;
-  }): number {
-    return this.exec(
+  }): Promise<number> {
+    return (await this.exec(
       `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, motivo, usuario_id, criado_em)
        VALUES (?, ?, ?, ?, 'fila', ?, ?, ?)`,
       i.pedidoId, i.impressoraId, i.via, JSON.stringify(i.dados), i.motivo, i.usuarioId, i.agora.toISOString(),
-    ).id;
+    )).id;
   }
 
-  proximaVia(pedidoId: number): number {
-    return this.um<{ v: number }>("SELECT COALESCE(MAX(via), 0) + 1 AS v FROM impressoes WHERE pedido_id = ?", pedidoId)!.v;
+  // A via é calculada no próprio INSERT: dois pedidos de reimpressão ao mesmo tempo não pegam o mesmo número.
+  async criarProximaVia(i: {
+    pedidoId: number; impressoraId: number; dados: DadosFolha; motivo: string; usuarioId: number; agora: Date;
+  }): Promise<number> {
+    return (await this.exec(
+      `INSERT INTO impressoes (pedido_id, impressora_id, via, dados_json, status, motivo, usuario_id, criado_em)
+       VALUES (?, ?, (SELECT COALESCE(MAX(via), 0) + 1 FROM impressoes WHERE pedido_id = ?), ?, 'fila', ?, ?, ?)`,
+      i.pedidoId, i.impressoraId, i.pedidoId, JSON.stringify(i.dados), i.motivo, i.usuarioId, i.agora.toISOString(),
+    )).id;
   }
 
-  ultimaImpressao(pedidoId: number): ImpressaoRow | null {
+  async proximaVia(pedidoId: number): Promise<number> {
+    return (await this.um<{ v: number }>("SELECT COALESCE(MAX(via), 0) + 1 AS v FROM impressoes WHERE pedido_id = ?", pedidoId))!.v;
+  }
+
+  async ultimaImpressao(pedidoId: number): Promise<ImpressaoRow | null> {
     return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE pedido_id = ? ORDER BY id DESC LIMIT 1", pedidoId);
   }
 
-  impressoesDoPedido(pedidoId: number): ImpressaoView[] {
+  async impressoesDoPedido(pedidoId: number): Promise<ImpressaoView[]> {
     return this.todos<ImpressaoView>(
       `SELECT i.id, i.via, i.status, i.criado_em, i.impresso_em, i.motivo, u.nome AS usuario, i.ultimo_erro
        FROM impressoes i LEFT JOIN usuarios u ON u.id = i.usuario_id
@@ -154,42 +203,49 @@ export class Repositorio {
     );
   }
 
-  buscarImpressao(id: number): ImpressaoRow | null {
+  async buscarImpressao(id: number): Promise<ImpressaoRow | null> {
     return this.um<ImpressaoRow>("SELECT * FROM impressoes WHERE id = ?", id);
   }
 
-  pegarProximaDaFila(impressoraId: number, agora: Date): ImpressaoRow | null {
-    return transacao(this.db, () => {
-      const imp = this.um<ImpressaoRow>(
-        "SELECT * FROM impressoes WHERE impressora_id = ? AND status = 'fila' ORDER BY id LIMIT 1", impressoraId,
-      );
-      if (!imp) return null;
-      this.exec("UPDATE impressoes SET status = 'imprimindo', iniciado_em = ? WHERE id = ?", agora.toISOString(), imp.id);
-      return { ...imp, status: "imprimindo" as const, iniciado_em: agora.toISOString() };
-    });
+  // Um único UPDATE ... RETURNING: dois agentes nunca pegam o mesmo trabalho.
+  async pegarProximaDaFila(impressoraId: number, agora: Date): Promise<ImpressaoRow | null> {
+    return this.um<ImpressaoRow>(
+      `UPDATE impressoes SET status = 'imprimindo', iniciado_em = ?
+       WHERE id = (SELECT id FROM impressoes WHERE impressora_id = ? AND status = 'fila' ORDER BY id LIMIT 1)
+       RETURNING *`,
+      agora.toISOString(), impressoraId,
+    );
   }
 
-  marcarImpressa(id: number, agora: Date): void {
-    this.exec("UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", agora.toISOString(), id);
+  async marcarImpressa(id: number, agora: Date): Promise<void> {
+    await this.exec("UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", agora.toISOString(), id);
   }
 
-  marcarFalha(id: number, erro: string, novoStatus: "fila" | "erro"): void {
-    this.exec(
+  // Marca impresso e enfileira para a planilha na mesma transação.
+  async registrarImpressa(id: number, agora: Date): Promise<void> {
+    await this.db.batch([
+      { sql: "UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", args: [agora.toISOString(), id] },
+      { sql: "INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", args: [id] },
+    ], "write");
+  }
+
+  async marcarFalha(id: number, erro: string, novoStatus: "fila" | "erro"): Promise<void> {
+    await this.exec(
       "UPDATE impressoes SET status = ?, tentativas = tentativas + 1, ultimo_erro = ? WHERE id = ?",
       novoStatus, erro, id,
     );
   }
 
-  listarTravadas(iniciadasAntesDe: Date): ImpressaoRow[] {
+  async listarTravadas(iniciadasAntesDe: Date): Promise<ImpressaoRow[]> {
     return this.todos<ImpressaoRow>(
       "SELECT * FROM impressoes WHERE status = 'imprimindo' AND iniciado_em < ? ORDER BY id", iniciadasAntesDe.toISOString(),
     );
   }
 
-  reenfileirarErros(impressoraId: number): number {
-    return this.exec(
+  async reenfileirarErros(impressoraId: number): Promise<number> {
+    return (await this.exec(
       "UPDATE impressoes SET status = 'fila', tentativas = 0 WHERE impressora_id = ? AND status = 'erro'", impressoraId,
-    ).changes;
+    )).changes;
   }
 
   // --- relatório ---
@@ -203,7 +259,7 @@ export class Repositorio {
     JOIN impressoras im ON im.id = i.impressora_id
     LEFT JOIN usuarios u ON u.id = i.usuario_id`;
 
-  relatorio(f: FiltroRelatorio): LinhaRelatorio[] {
+  async relatorio(f: FiltroRelatorio): Promise<LinhaRelatorio[]> {
     const onde = ["i.criado_em BETWEEN ? AND ?"];
     const params: Param[] = [inicioDoDia(f.de), fimDoDia(f.ate)];
     if (f.vendedor) { onde.push("json_extract(i.dados_json, '$.pedido.vendedor') LIKE ?"); params.push(`%${f.vendedor}%`); }
@@ -212,23 +268,23 @@ export class Repositorio {
     return this.todos<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE ${onde.join(" AND ")} ORDER BY i.id DESC`, ...params);
   }
 
-  linhaRelatorio(impressaoId: number): LinhaRelatorio | null {
+  async linhaRelatorio(impressaoId: number): Promise<LinhaRelatorio | null> {
     return this.um<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE i.id = ?`, impressaoId);
   }
 
   // --- alertas ---
-  criarAlerta(a: { tipo: TipoAlerta; pedidoId: number | null; mensagem: string; agora: Date }): number {
-    return this.exec(
+  async criarAlerta(a: { tipo: TipoAlerta; pedidoId: number | null; mensagem: string; agora: Date }): Promise<number> {
+    return (await this.exec(
       "INSERT INTO alertas (tipo, pedido_id, mensagem, criado_em) VALUES (?, ?, ?, ?)",
       a.tipo, a.pedidoId, a.mensagem, a.agora.toISOString(),
-    ).id;
+    )).id;
   }
 
-  alertaPendenteDoTipo(tipo: TipoAlerta): boolean {
-    return this.um("SELECT 1 AS x FROM alertas WHERE tipo = ? AND resolvido_em IS NULL LIMIT 1", tipo) !== null;
+  async alertaPendenteDoTipo(tipo: TipoAlerta): Promise<boolean> {
+    return (await this.um("SELECT 1 AS x FROM alertas WHERE tipo = ? AND resolvido_em IS NULL LIMIT 1", tipo)) !== null;
   }
 
-  alertasPendentes(): AlertaView[] {
+  async alertasPendentes(): Promise<AlertaView[]> {
     return this.todos<AlertaView>(
       `SELECT a.id, a.tipo, a.pedido_id, p.numero, a.mensagem, a.criado_em
        FROM alertas a LEFT JOIN pedidos p ON p.id = a.pedido_id
@@ -236,7 +292,7 @@ export class Repositorio {
     );
   }
 
-  alertasDoPedido(pedidoId: number): AlertaView[] {
+  async alertasDoPedido(pedidoId: number): Promise<AlertaView[]> {
     return this.todos<AlertaView>(
       `SELECT a.id, a.tipo, a.pedido_id, p.numero, a.mensagem, a.criado_em
        FROM alertas a LEFT JOIN pedidos p ON p.id = a.pedido_id
@@ -245,87 +301,89 @@ export class Repositorio {
     );
   }
 
-  resolverAlerta(id: number, usuarioId: number | null, agora: Date): void {
-    this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE id = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), id);
+  async resolverAlerta(id: number, usuarioId: number | null, agora: Date): Promise<void> {
+    await this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE id = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), id);
   }
 
-  resolverAlertasDoTipo(tipo: TipoAlerta, usuarioId: number | null, agora: Date, pedidoId?: number): void {
+  async resolverAlertasDoTipo(tipo: TipoAlerta, usuarioId: number | null, agora: Date, pedidoId?: number): Promise<void> {
     if (pedidoId === undefined) {
-      this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE tipo = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), tipo);
+      await this.exec("UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE tipo = ? AND resolvido_em IS NULL", usuarioId, agora.toISOString(), tipo);
     } else {
-      this.exec(
+      await this.exec(
         "UPDATE alertas SET resolvido_por = ?, resolvido_em = ? WHERE tipo = ? AND pedido_id = ? AND resolvido_em IS NULL",
         usuarioId, agora.toISOString(), tipo, pedidoId,
       );
     }
   }
 
-  contadoresDoDia(dia: string): { impressos: number; naFila: number; alertas: number } {
-    const impressos = this.um<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?", inicioDoDia(dia), fimDoDia(dia),
-    )!.n;
-    const naFila = this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE status IN ('fila', 'imprimindo')")!.n;
-    const alertas = this.um<{ n: number }>("SELECT COUNT(*) AS n FROM alertas WHERE resolvido_em IS NULL")!.n;
-    return { impressos, naFila, alertas };
+  async contadoresDoDia(dia: string): Promise<{ impressos: number; naFila: number; alertas: number }> {
+    const r = await this.um<{ impressos: number; naFila: number; alertas: number }>(
+      `SELECT
+        (SELECT COUNT(*) FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?) AS impressos,
+        (SELECT COUNT(*) FROM impressoes WHERE status IN ('fila', 'imprimindo')) AS naFila,
+        (SELECT COUNT(*) FROM alertas WHERE resolvido_em IS NULL) AS alertas`,
+      inicioDoDia(dia), fimDoDia(dia),
+    );
+    return r!;
   }
 
-  ultimaComunicacaoAgente(impressoraId: number): string | null {
-    return this.um<{ u: string | null }>(
+  async ultimaComunicacaoAgente(impressoraId: number): Promise<string | null> {
+    return (await this.um<{ u: string | null }>(
       "SELECT a.ultima_comunicacao AS u FROM impressoras i JOIN agentes a ON a.id = i.agente_id WHERE i.id = ?", impressoraId,
-    )?.u ?? null;
+    ))?.u ?? null;
   }
 
-  contarErros(impressoraId: number): number {
-    return this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId)!.n;
+  async contarErros(impressoraId: number): Promise<number> {
+    return (await this.um<{ n: number }>("SELECT COUNT(*) AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId))!.n;
   }
 
-  // --- usuários (só o necessário aqui; o resto na Task 9) ---
-  nomeUsuario(id: number | null): string | null {
+  // --- usuários ---
+  async nomeUsuario(id: number | null): Promise<string | null> {
     if (id === null) return null;
-    return this.um<{ nome: string }>("SELECT nome FROM usuarios WHERE id = ?", id)?.nome ?? null;
+    return (await this.um<{ nome: string }>("SELECT nome FROM usuarios WHERE id = ?", id))?.nome ?? null;
   }
 
-  criarUsuario(u: { nome: string; email: string; senhaHash: string; papel: Papel }): number {
-    return this.exec(
+  async criarUsuario(u: { nome: string; email: string; senhaHash: string; papel: Papel }): Promise<number> {
+    return (await this.exec(
       "INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)",
       u.nome, u.email.trim().toLowerCase(), u.senhaHash, u.papel,
-    ).id;
+    )).id;
   }
 
-  buscarUsuarioPorEmail(email: string): UsuarioRow | null {
+  async buscarUsuarioPorEmail(email: string): Promise<UsuarioRow | null> {
     return this.um<UsuarioRow>("SELECT * FROM usuarios WHERE email = ?", email.trim().toLowerCase());
   }
 
-  buscarUsuarioPorId(id: number): UsuarioRow | null {
+  async buscarUsuarioPorId(id: number): Promise<UsuarioRow | null> {
     return this.um<UsuarioRow>("SELECT * FROM usuarios WHERE id = ?", id);
   }
 
-  listarUsuarios(): UsuarioRow[] {
+  async listarUsuarios(): Promise<UsuarioRow[]> {
     return this.todos<UsuarioRow>("SELECT * FROM usuarios ORDER BY ativo DESC, nome");
   }
 
-  definirUsuarioAtivo(id: number, ativo: boolean): void {
-    this.exec("UPDATE usuarios SET ativo = ? WHERE id = ?", ativo ? 1 : 0, id);
+  async definirUsuarioAtivo(id: number, ativo: boolean): Promise<void> {
+    await this.exec("UPDATE usuarios SET ativo = ? WHERE id = ?", ativo ? 1 : 0, id);
   }
 
   // --- planilha ---
-  enfileirarPlanilha(impressaoId: number): void {
-    this.exec("INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", impressaoId);
+  async enfileirarPlanilha(impressaoId: number): Promise<void> {
+    await this.exec("INSERT OR IGNORE INTO fila_planilha (impressao_id) VALUES (?)", impressaoId);
   }
 
-  pendentesPlanilha(limite: number): number[] {
-    return this.todos<{ impressao_id: number }>(
+  async pendentesPlanilha(limite: number): Promise<number[]> {
+    return (await this.todos<{ impressao_id: number }>(
       "SELECT impressao_id FROM fila_planilha WHERE enviado_em IS NULL ORDER BY id LIMIT ?", limite,
-    ).map((r) => r.impressao_id);
+    )).map((r) => r.impressao_id);
   }
 
-  marcarPlanilhaEnviada(impressaoIds: number[], agora: Date): void {
-    const st = this.db.prepare("UPDATE fila_planilha SET enviado_em = ? WHERE impressao_id = ?");
-    for (const id of impressaoIds) st.run(agora.toISOString(), id);
+  async marcarPlanilhaEnviada(impressaoIds: number[], agora: Date): Promise<void> {
+    if (!impressaoIds.length) return;
+    await this.db.batch(impressaoIds.map((id) => ({ sql: "UPDATE fila_planilha SET enviado_em = ? WHERE impressao_id = ?", args: [agora.toISOString(), id] })), "write");
   }
 
-  registrarFalhaPlanilha(impressaoIds: number[]): void {
-    const st = this.db.prepare("UPDATE fila_planilha SET tentativas = tentativas + 1 WHERE impressao_id = ?");
-    for (const id of impressaoIds) st.run(id);
+  async registrarFalhaPlanilha(impressaoIds: number[]): Promise<void> {
+    if (!impressaoIds.length) return;
+    await this.db.batch(impressaoIds.map((id) => ({ sql: "UPDATE fila_planilha SET tentativas = tentativas + 1 WHERE impressao_id = ?", args: [id] })), "write");
   }
 }

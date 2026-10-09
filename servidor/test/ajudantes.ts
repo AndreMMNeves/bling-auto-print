@@ -1,16 +1,34 @@
+import type { FastifyInstance } from "fastify";
 import { abrirBanco } from "../src/banco/banco.ts";
 import { Repositorio } from "../src/banco/repositorio.ts";
 import type { DadosFolha } from "../../compartilhado/tipos.ts";
+import type { Config } from "../src/config.ts";
+import { criarApp, type DepsApp } from "../src/app.ts";
+import { hashSenha } from "../src/web/auth.ts";
 
 export const AGORA = new Date("2026-10-08T17:32:00.000Z"); // 14:32 em São Paulo
 
-export function bancoDeTeste() {
-  const repo = new Repositorio(abrirBanco(":memory:"));
-  const filialId = repo.garantirFilial("ES", "Espírito Santo");
-  const { agenteId, impressoraId } = repo.garantirAgente(filialId, {
+export async function bancoDeTeste() {
+  const repo = new Repositorio(await abrirBanco(":memory:"));
+  const filialId = await repo.garantirFilial("ES", "Espírito Santo");
+  const { agenteId, impressoraId } = await repo.garantirAgente(filialId, {
     nome: "expedicao-es", token: "token-teste", impressora: "HP A4",
   });
   return { repo, filialId, agenteId, impressoraId };
+}
+
+// SQL direto nos testes.
+export async function todas<T = Record<string, unknown>>(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<T[]> {
+  const rs = await repo.db.execute({ sql, args });
+  return rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])) as T);
+}
+
+export async function uma<T = Record<string, unknown>>(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<T> {
+  return (await todas<T>(repo, sql, ...args))[0];
+}
+
+export async function executar(repo: Repositorio, sql: string, ...args: Array<string | number | null>): Promise<number> {
+  return Number((await repo.db.execute({ sql, args })).lastInsertRowid);
 }
 
 export function dadosFolhaExemplo(qtdItens = 2, numero = "12345"): DadosFolha {
@@ -32,28 +50,24 @@ export function dadosFolhaExemplo(qtdItens = 2, numero = "12345"): DadosFolha {
   };
 }
 
-import type { FastifyInstance } from "fastify";
-import type { Config } from "../src/config.ts";
-import { criarApp, type DepsApp } from "../src/app.ts";
-import { hashSenha } from "../src/web/auth.ts";
-
 export function configDeTeste(): Config {
   return {
     porta: 0, urlPublica: "http://localhost:3010", segredoSessao: "segredo-de-teste-com-tamanho-suficiente-123",
-    arquivoBanco: ":memory:", chromePath: "", filial: { codigo: "ES", nome: "Espírito Santo" },
+    banco: { url: ":memory:" }, filial: { codigo: "ES", nome: "Espírito Santo" },
     bling: { clientId: "a", clientSecret: "b", intervaloSegundos: 30, margemMinutos: 5, situacaoAtendido: 9, situacaoCancelado: 12, campoCodigoBarras: "numero" },
-    agentes: [{ nome: "expedicao-es", token: "token-teste", impressora: "HP A4" }], google: null,
+    agentes: [{ nome: "expedicao-es", token: "token-teste-com-32-caracteres-ok!!", impressora: "HP A4" }], google: null,
   };
 }
 
 export async function appDeTeste(extra: Partial<DepsApp> = {}) {
-  const b = bancoDeTeste();
-  const supervisorId = b.repo.criarUsuario({ nome: "Sup", email: "sup@x.com", senhaHash: hashSenha("senha-sup"), papel: "supervisor" });
-  const operadorId = b.repo.criarUsuario({ nome: "Op", email: "op@x.com", senhaHash: hashSenha("senha-op"), papel: "operador" });
+  const b = await bancoDeTeste();
+  const supervisorId = await b.repo.criarUsuario({ nome: "Sup", email: "sup@x.com", senhaHash: hashSenha("senha-sup"), papel: "supervisor" });
+  const operadorId = await b.repo.criarUsuario({ nome: "Op", email: "op@x.com", senhaHash: hashSenha("senha-op"), papel: "operador" });
   const deps: DepsApp = {
     repo: b.repo, config: configDeTeste(), filialId: b.filialId, impressoraId: b.impressoraId, agora: () => AGORA,
-    gerarPdf: async () => Buffer.from("%PDF"), montarFolha: async (idBling) => dadosFolhaExemplo(2, String(idBling - 1000)),
-    bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => {}, estaConectado: () => true },
+    montarFolha: async (idBling) => dadosFolhaExemplo(2, String(idBling - 1000)),
+    bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => {}, estaConectado: async () => true },
+    tarefasPeriodicas: async () => ({ ok: true }),
     ...extra,
   };
   const app = await criarApp(deps);

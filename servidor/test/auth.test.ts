@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { hashSenha, verificarSenha } from "../src/web/auth.ts";
 import { appDeTeste, entrar } from "./ajudantes.ts";
 
-test("hash de senha confere só com a senha certa", () => {
+test("hash de senha confere só com a senha certa", async () => {
   const h = hashSenha("abc123");
   assert.ok(h.startsWith("scrypt$"));
   assert.equal(verificarSenha("abc123", h), true);
@@ -46,7 +46,7 @@ test("operador não acessa usuários; supervisor acessa e cria", async () => {
 
   const criar = await app.inject({ method: "POST", url: "/usuarios", headers: { cookie: sup }, payload: { nome: "Novo <b>", email: "Novo@X.com", senha: "12345678", papel: "operador" } });
   assert.equal(criar.statusCode, 302);
-  assert.equal(repo.buscarUsuarioPorEmail("novo@x.com")?.papel, "operador");
+  assert.equal((await repo.buscarUsuarioPorEmail("novo@x.com"))?.papel, "operador");
   const depois = await app.inject({ url: "/usuarios", headers: { cookie: sup } });
   assert.match(depois.body, /Novo &lt;b&gt;/);
 });
@@ -62,7 +62,7 @@ test("senha curta ou e-mail repetido são recusados", async () => {
 
 test("usuário desativado não entra", async () => {
   const { app, repo, operadorId } = await appDeTeste();
-  repo.definirUsuarioAtivo(operadorId, false);
+  await repo.definirUsuarioAtivo(operadorId, false);
   const r = await app.inject({ method: "POST", url: "/login", payload: { email: "op@x.com", senha: "senha-op" } });
   assert.equal(r.statusCode, 401);
 });

@@ -6,22 +6,23 @@ export type EnviarLinhas = (linhas: string[][]) => Promise<void>;
 
 // Nunca lança erro: a planilha não pode atrapalhar a impressão.
 export async function processarFilaPlanilha(repo: Repositorio, enviar: EnviarLinhas, agora: Date): Promise<number> {
-  const ids = repo.pendentesPlanilha(50);
+  const ids = await repo.pendentesPlanilha(50);
   if (!ids.length) return 0;
-  const linhas = ids.map((id) => repo.linhaRelatorio(id)).filter((l) => l !== null).map(linhaParaColunas);
+  const linhas = (await Promise.all(ids.map((id) => repo.linhaRelatorio(id)))).filter((l) => l !== null).map(linhaParaColunas);
   try {
     await enviar(linhas);
   } catch (e) {
-    repo.registrarFalhaPlanilha(ids);
+    await repo.registrarFalhaPlanilha(ids);
     console.error(`[planilha] falha ao enviar ${ids.length} linha(s): ${e instanceof Error ? e.message : String(e)}`);
     return 0;
   }
-  repo.marcarPlanilhaEnviada(ids, agora);
+  await repo.marcarPlanilhaEnviada(ids, agora);
   return ids.length;
 }
 
-export function criarEnviadorSheets(cfg: { arquivoCredenciais: string; planilhaId: string; aba: string }): EnviarLinhas {
-  const auth = new GoogleAuth({ keyFile: cfg.arquivoCredenciais, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
+// credenciais: conteúdo do JSON da conta de serviço (na Vercel vem de variável de ambiente).
+export function criarEnviadorSheets(cfg: { credenciais: Record<string, unknown>; planilhaId: string; aba: string }): EnviarLinhas {
+  const auth = new GoogleAuth({ credentials: cfg.credenciais, scopes: ["https://www.googleapis.com/auth/spreadsheets"] });
   const intervalo = encodeURIComponent(`${cfg.aba}!A1`);
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${cfg.planilhaId}/values/${intervalo}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
   return async (linhas) => {

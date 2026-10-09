@@ -1,4 +1,4 @@
-import type { DadosFolha, Via } from "../../../compartilhado/tipos.ts";
+import type { DadosFolha, Via } from "../tipos.ts";
 import { escaparHtml } from "../html-util.ts";
 import { formatarDataHora, formatarHora } from "../tempo.ts";
 

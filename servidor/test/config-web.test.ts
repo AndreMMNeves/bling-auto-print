@@ -21,9 +21,9 @@ test("configuração mostra filial, impressora e estado da conexão", async () =
 
 test("fluxo OAuth: conectar guarda state, callback troca código e resolve alerta", async () => {
   let codigoRecebido = "";
-  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async (code) => { codigoRecebido = code; }, estaConectado: () => true } });
-  c.repo.criarAlerta({ tipo: "bling_desconectado", pedidoId: null, mensagem: "x", agora: AGORA });
-  c.repo.definirEstado("bling:erro_desde", AGORA.toISOString());
+  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async (code) => { codigoRecebido = code; }, estaConectado: async () => true } });
+  await c.repo.criarAlerta({ tipo: "bling_desconectado", pedidoId: null, mensagem: "x", agora: AGORA });
+  await c.repo.definirEstado("bling:erro_desde", AGORA.toISOString());
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
 
   const ir = await c.app.inject({ url: "/bling/conectar", headers: { cookie: sup } });
@@ -37,16 +37,16 @@ test("fluxo OAuth: conectar guarda state, callback troca código e resolve alert
   const volta = await c.app.inject({ url: `/bling/callback?code=COD123&state=${state}` });
   assert.equal(volta.statusCode, 302);
   assert.equal(codigoRecebido, "COD123");
-  assert.equal(c.repo.alertaPendenteDoTipo("bling_desconectado"), false);
-  assert.equal(c.repo.obterEstado("bling:erro_desde"), null);
-  assert.equal(c.repo.obterEstado("bling:oauth_state"), null);
+  assert.equal(await c.repo.alertaPendenteDoTipo("bling_desconectado"), false);
+  assert.equal(await c.repo.obterEstado("bling:erro_desde"), null);
+  assert.equal(await c.repo.obterEstado("bling:oauth_state"), null);
 
   const reuso = await c.app.inject({ url: `/bling/callback?code=COD123&state=${state}` });
   assert.equal(reuso.statusCode, 400);
 });
 
 test("falha ao trocar o código mostra o erro", async () => {
-  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => { throw new Error("invalid_client"); }, estaConectado: () => false } });
+  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => { throw new Error("invalid_client"); }, estaConectado: async () => false } });
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
   const ir = await c.app.inject({ url: "/bling/conectar", headers: { cookie: sup } });
   const state = new URL(String(ir.headers.location)).searchParams.get("state")!;

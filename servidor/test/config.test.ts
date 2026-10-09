@@ -12,7 +12,7 @@ function gravar(obj: unknown): string {
 }
 
 const valida = {
-  porta: 3010, urlPublica: "http://localhost:3010", segredoSessao: "s".repeat(40), arquivoBanco: "dados/x.db",
+  porta: 3010, urlPublica: "http://localhost:3010", segredoSessao: "s".repeat(40), banco: { url: "file:dados/x.db" },
   chromePath: "C:/chrome.exe", filial: { codigo: "ES", nome: "Espírito Santo" },
   bling: { clientId: "a", clientSecret: "b", intervaloSegundos: 30, margemMinutos: 5, situacaoAtendido: 9, situacaoCancelado: 12, campoCodigoBarras: "numero" },
   agentes: [{ nome: "expedicao-es", token: "t".repeat(32), impressora: "HP" }],
@@ -22,7 +22,7 @@ const valida = {
 test("carrega config válida e resolve caminho do banco", () => {
   const c = carregarConfig(gravar(valida));
   assert.equal(c.porta, 3010);
-  assert.ok(isAbsolute(c.arquivoBanco));
+  assert.ok(isAbsolute(c.banco.url.slice("file:".length)));
 });
 
 test("aponta os campos que faltam", () => {

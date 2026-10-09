@@ -1,22 +1,9 @@
-import { DatabaseSync } from "node:sqlite";
+import { createClient, type Client } from "@libsql/client";
 import { SCHEMA } from "./schema.ts";
 
-export function abrirBanco(arquivo: string): DatabaseSync {
-  const db = new DatabaseSync(arquivo);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-  db.exec(SCHEMA);
+// url: ":memory:" (testes), "file:dados/expedicao.db" (PC local) ou "libsql://...turso.io" (Vercel).
+export async function abrirBanco(url: string, authToken?: string): Promise<Client> {
+  const db = createClient(authToken ? { url, authToken } : { url });
+  await db.executeMultiple(SCHEMA);
   return db;
-}
-
-// Não aninhe: chamar transacao() dentro de outra transacao() dá erro de BEGIN.
-export function transacao<T>(db: DatabaseSync, fn: () => T): T {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const r = fn();
-    db.exec("COMMIT");
-    return r;
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
 }

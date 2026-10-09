@@ -4,7 +4,7 @@ import formbody from "@fastify/formbody";
 import type { Repositorio } from "./banco/repositorio.ts";
 import type { MontarFolha } from "./bling/montar-folha.ts";
 import type { Config } from "./config.ts";
-import { registrarApiAgente, type GerarPdf } from "./web/api-agente.ts";
+import { registrarApiAgente } from "./web/api-agente.ts";
 import { registrarAuth } from "./web/auth.ts";
 import { registrarConfig } from "./web/config.ts";
 import { registrarAlertas } from "./web/alertas.ts";
@@ -19,9 +19,9 @@ export type DepsApp = {
   filialId: number;
   impressoraId: number;
   agora: () => Date;
-  gerarPdf: GerarPdf;
   montarFolha: MontarFolha;
-  bling: { urlAutorizacao(state: string): string; trocarCodigo(code: string): Promise<void>; estaConectado(): boolean };
+  bling: { urlAutorizacao(state: string): string; trocarCodigo(code: string): Promise<void>; estaConectado(): Promise<boolean> };
+  tarefasPeriodicas: () => Promise<unknown>;
 };
 
 export async function criarApp(d: DepsApp): Promise<FastifyInstance> {

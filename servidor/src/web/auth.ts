@@ -1,7 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Papel, Repositorio } from "../banco/repositorio.ts";
-import { escaparHtml } from "../html-util.ts";
+import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import { pagina } from "./layout.ts";
 
 export type UsuarioSessao = { id: number; nome: string; papel: Papel };
@@ -50,14 +50,14 @@ export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agor
     if (!r.valid || !r.value) return;
     const [idStr, expStr] = r.value.split(":");
     if (Number(expStr) < d.agora().getTime()) return;
-    const u = d.repo.buscarUsuarioPorId(Number(idStr));
+    const u = await d.repo.buscarUsuarioPorId(Number(idStr));
     if (u && u.ativo) req.usuario = { id: u.id, nome: u.nome, papel: u.papel };
   });
 
   app.get("/login", async (_req, reply) => reply.type("text/html").send(paginaLogin(null)));
 
   app.post<{ Body: { email?: string; senha?: string } }>("/login", async (req, reply) => {
-    const u = d.repo.buscarUsuarioPorEmail(String(req.body?.email ?? ""));
+    const u = await d.repo.buscarUsuarioPorEmail(String(req.body?.email ?? ""));
     if (!u || !u.ativo || !verificarSenha(String(req.body?.senha ?? ""), u.senha_hash)) {
       return reply.code(401).type("text/html").send(paginaLogin("E-mail ou senha incorretos."));
     }

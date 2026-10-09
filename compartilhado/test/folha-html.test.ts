@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatarQuantidade, renderizarFolha, rotuloVia, type CodigosFolha } from "../src/folha/html.ts";
-import { dadosFolhaExemplo } from "./ajudantes.ts";
+import { formatarQuantidade, renderizarFolha, rotuloVia, type CodigosFolha } from "../folha/html.ts";
+import { dadosFolhaExemplo } from "../../servidor/test/ajudantes.ts";
 
 const codigos = (porSku: Record<string, string> = {}): CodigosFolha => ({ pedido: "data:image/png;base64,PEDIDO", porSku: new Map(Object.entries(porSku)) });
 const via1 = { numero: 1, motivo: null, usuario: null, em: null };

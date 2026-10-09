@@ -5,34 +5,34 @@ import { appDeTeste, dadosFolhaExemplo, entrar } from "./ajudantes.ts";
 
 async function comDados() {
   const c = await appDeTeste();
-  const criar = (numero: string, quando: string, via = 1, vendedor = "Fulano", motivo: string | null = null, usuarioId: number | null = null) => {
-    const p = c.repo.buscarPedido(c.filialId, numero) ?? { id: c.repo.inserirPedido({ filialId: c.filialId, numero, idBling: 1, situacao: 9, origem: "monitor", agora: new Date(quando) }) };
+  const criar = async (numero: string, quando: string, via = 1, vendedor = "Fulano", motivo: string | null = null, usuarioId: number | null = null) => {
+    const p = (await c.repo.buscarPedido(c.filialId, numero)) ?? { id: await c.repo.inserirPedido({ filialId: c.filialId, numero, idBling: 1, situacao: 9, origem: "monitor", agora: new Date(quando) }) };
     const d = dadosFolhaExemplo(3, numero);
     d.pedido.vendedor = vendedor;
-    const id = c.repo.criarImpressao({ pedidoId: p.id, impressoraId: c.impressoraId, via, dados: d, motivo, usuarioId, agora: new Date(quando) });
-    c.repo.marcarImpressa(id, new Date(quando));
+    const id = await c.repo.criarImpressao({ pedidoId: p.id, impressoraId: c.impressoraId, via, dados: d, motivo, usuarioId, agora: new Date(quando) });
+    await c.repo.marcarImpressa(id, new Date(quando));
     return id;
   };
-  criar("10", "2026-10-08T13:00:00.000Z");
-  criar("11", "2026-10-09T02:50:00.000Z", 1, "Beltrano"); // 23:50 do dia 08 em SP
-  criar("10", "2026-10-08T15:00:00.000Z", 2, "Fulano", "Folha perdida", c.supervisorId);
-  criar("12", "2026-10-09T12:00:00.000Z");
+  await criar("10", "2026-10-08T13:00:00.000Z");
+  await criar("11", "2026-10-09T02:50:00.000Z", 1, "Beltrano"); // 23:50 do dia 08 em SP
+  await criar("10", "2026-10-08T15:00:00.000Z", 2, "Fulano", "Folha perdida", c.supervisorId);
+  await criar("12", "2026-10-09T12:00:00.000Z");
   return c;
 }
 
 test("filtra pelo dia local (23:50 conta no próprio dia)", async () => {
   const c = await comDados();
-  const linhas = c.repo.relatorio({ de: "2026-10-08", ate: "2026-10-08" });
+  const linhas = await c.repo.relatorio({ de: "2026-10-08", ate: "2026-10-08" });
   assert.deepEqual(linhas.map((l) => l.numero).sort(), ["10", "10", "11"]);
-  assert.deepEqual(c.repo.relatorio({ de: "2026-10-09", ate: "2026-10-09" }).map((l) => l.numero), ["12"]);
+  assert.deepEqual((await c.repo.relatorio({ de: "2026-10-09", ate: "2026-10-09" })).map((l) => l.numero), ["12"]);
 });
 
 test("filtros por vendedor, pedido e só reimpressões", async () => {
   const c = await comDados();
   const dia = { de: "2026-10-08", ate: "2026-10-09" };
-  assert.deepEqual(c.repo.relatorio({ ...dia, vendedor: "beltr" }).map((l) => l.numero), ["11"]);
-  assert.equal(c.repo.relatorio({ ...dia, pedido: "10" }).length, 2);
-  const re = c.repo.relatorio({ ...dia, soReimpressoes: true });
+  assert.deepEqual((await c.repo.relatorio({ ...dia, vendedor: "beltr" })).map((l) => l.numero), ["11"]);
+  assert.equal((await c.repo.relatorio({ ...dia, pedido: "10" })).length, 2);
+  const re = await c.repo.relatorio({ ...dia, soReimpressoes: true });
   assert.equal(re.length, 1);
   assert.equal(re[0].motivo, "Folha perdida");
   assert.equal(re[0].usuario, "Sup");
@@ -40,7 +40,7 @@ test("filtros por vendedor, pedido e só reimpressões", async () => {
   assert.equal(re[0].cliente, "Clínica X");
 });
 
-test("CSV abre no Excel: BOM, ponto e vírgula, aspas escapadas", () => {
+test("CSV abre no Excel: BOM, ponto e vírgula, aspas escapadas", async () => {
   const csv = gerarCsv([{
     impressaoId: 1, criadoEm: "2026-10-08T17:32:00.000Z", impressoEm: "2026-10-08T17:32:00.000Z", numero: "10",
     cliente: 'Clínica "X"; Ltda', vendedor: null, itens: 2, via: 1, status: "impresso", impressora: "HP", usuario: null, motivo: null,
@@ -67,8 +67,8 @@ test("página do relatório exige login e mostra as linhas do dia", async () => 
 test("relatório mostra 50 por página com navegação; o Excel leva tudo", async () => {
   const c = await appDeTeste();
   for (let i = 0; i < 120; i++) {
-    const pedidoId = c.repo.inserirPedido({ filialId: c.filialId, numero: String(1000 + i), idBling: i, situacao: 9, origem: "monitor", agora: new Date("2026-10-08T13:00:00.000Z") });
-    c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, String(1000 + i)), motivo: null, usuarioId: null, agora: new Date("2026-10-08T13:00:00.000Z") });
+    const pedidoId = await c.repo.inserirPedido({ filialId: c.filialId, numero: String(1000 + i), idBling: i, situacao: 9, origem: "monitor", agora: new Date("2026-10-08T13:00:00.000Z") });
+    await c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, String(1000 + i)), motivo: null, usuarioId: null, agora: new Date("2026-10-08T13:00:00.000Z") });
   }
   const op = await entrar(c.app, "op@x.com", "senha-op");
   const linhas = (html: string) => (html.match(/<td>HP A4<\/td>/g) ?? []).length;

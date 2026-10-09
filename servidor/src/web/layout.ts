@@ -1,4 +1,4 @@
-import { escaparHtml } from "../html-util.ts";
+import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import type { UsuarioSessao } from "./auth.ts";
 
 // Liquid Glass: painéis de vidro fosco flutuando sobre um fundo de pedra polida (ônix).

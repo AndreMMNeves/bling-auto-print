@@ -4,10 +4,10 @@ import { AGORA, appDeTeste, dadosFolhaExemplo, entrar } from "./ajudantes.ts";
 
 async function comPedido(extra = {}) {
   const c = await appDeTeste(extra);
-  const pedidoId = c.repo.inserirPedido({ filialId: c.filialId, numero: "10", idBling: 1010, situacao: 9, origem: "monitor", agora: AGORA });
-  const imp = c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, "10"), motivo: null, usuarioId: null, agora: AGORA });
-  c.repo.marcarImpressa(imp, AGORA);
-  c.repo.criarAlerta({ tipo: "repetido", pedidoId, mensagem: "Pedido 10 voltou para Atendido", agora: AGORA });
+  const pedidoId = await c.repo.inserirPedido({ filialId: c.filialId, numero: "10", idBling: 1010, situacao: 9, origem: "monitor", agora: AGORA });
+  const imp = await c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, "10"), motivo: null, usuarioId: null, agora: AGORA });
+  await c.repo.marcarImpressa(imp, AGORA);
+  await c.repo.criarAlerta({ tipo: "repetido", pedidoId, mensagem: "Pedido 10 voltou para Atendido", agora: AGORA });
   return { ...c, pedidoId };
 }
 
@@ -37,12 +37,12 @@ test("supervisor reimprime: cria 2ª via e resolve alerta de repetido", async ()
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
   const r = await c.app.inject({ method: "POST", url: `/pedidos/${c.pedidoId}/reimprimir`, headers: { cookie: sup }, payload: { motivo: "Folha perdida" } });
   assert.equal(r.statusCode, 302);
-  const ult = c.repo.ultimaImpressao(c.pedidoId)!;
+  const ult = (await c.repo.ultimaImpressao(c.pedidoId))!;
   assert.equal(ult.via, 2);
   assert.equal(ult.motivo, "Folha perdida");
   assert.equal(ult.usuario_id, c.supervisorId);
   assert.equal(ult.status, "fila");
-  assert.equal(c.repo.alertasDoPedido(c.pedidoId).length, 0);
+  assert.equal((await c.repo.alertasDoPedido(c.pedidoId)).length, 0);
 });
 
 test("motivo Outro exige texto; motivo inválido é recusado", async () => {
@@ -54,7 +54,7 @@ test("motivo Outro exige texto; motivo inválido é recusado", async () => {
   assert.equal(invalido.statusCode, 400);
   const comTexto = await c.app.inject({ method: "POST", url: `/pedidos/${c.pedidoId}/reimprimir`, headers: { cookie: sup }, payload: { motivo: "Outro", outro: "Cliente pediu cópia" } });
   assert.equal(comTexto.statusCode, 302);
-  assert.equal(c.repo.ultimaImpressao(c.pedidoId)!.motivo, "Outro: Cliente pediu cópia");
+  assert.equal((await c.repo.ultimaImpressao(c.pedidoId))!.motivo, "Outro: Cliente pediu cópia");
 });
 
 test("Bling fora do ar na reimpressão mostra erro e não cria via", async () => {
@@ -63,5 +63,5 @@ test("Bling fora do ar na reimpressão mostra erro e não cria via", async () =>
   const r = await c.app.inject({ method: "POST", url: `/pedidos/${c.pedidoId}/reimprimir`, headers: { cookie: sup }, payload: { motivo: "Folha perdida" } });
   assert.equal(r.statusCode, 502);
   assert.match(r.body, /Bling 503/);
-  assert.equal(c.repo.ultimaImpressao(c.pedidoId)!.via, 1);
+  assert.equal((await c.repo.ultimaImpressao(c.pedidoId))!.via, 1);
 });

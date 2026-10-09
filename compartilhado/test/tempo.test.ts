@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diaLocal, fimDoDia, formatarDataHora, formatarHora, inicioDoDia } from "../src/tempo.ts";
+import { diaLocal, fimDoDia, formatarDataHora, formatarHora, inicioDoDia } from "../tempo.ts";
 
 test("formatarDataHora mostra no fuso de São Paulo", () => {
   assert.equal(formatarDataHora("2026-10-08T17:32:00.000Z"), "08/10/2026 14:32");
