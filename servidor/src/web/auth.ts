@@ -2,7 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Papel, Repositorio } from "../banco/repositorio.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
-import { pagina } from "./layout.ts";
+import { marca, pagina } from "./layout.ts";
 
 export type UsuarioSessao = { id: number; nome: string; papel: Papel };
 
@@ -31,7 +31,7 @@ export function verificarSenha(senha: string, armazenado: string): boolean {
 function paginaLogin(erro: string | null): string {
   return pagina(null, "Entrar", `
 <form method="post" action="/login" class="cartao estreito entrada">
-  <span class="marca">Ônix HOF<small>Expedição</small></span>
+  ${marca()}
   ${erro ? `<p class="erro">${escaparHtml(erro)}</p>` : ""}
   <label>E-mail <input name="email" type="email" required autofocus></label>
   <label>Senha <input name="senha" type="password" required></label>

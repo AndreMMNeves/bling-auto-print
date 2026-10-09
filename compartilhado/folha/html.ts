@@ -1,6 +1,7 @@
 import type { DadosFolha, Via } from "../tipos.ts";
 import { escaparHtml } from "../html-util.ts";
 import { formatarDataHora } from "../tempo.ts";
+import { LOGO_ONIX_DATA_URI } from "../marca.ts";
 
 // Folha no mesmo modelo da impressão "Pedido de Venda" do Bling (que a expedição já conhece),
 // com o selo de via e o aviso de reimpressão do sistema.
@@ -33,8 +34,7 @@ const ESTILO = `
 * { box-sizing: border-box; }
 body { font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; color: #000; margin: 0; }
 .topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3mm; }
-.logo { font-size: 15pt; font-weight: 800; letter-spacing: .5px; }
-.logo small { display: block; font-size: 6pt; font-weight: 400; letter-spacing: 0; color: #444; }
+.logo { height: 11mm; width: auto; }
 .empresa { font-size: 8pt; }
 .titulo { text-align: center; margin: 2mm 0 4mm; }
 .titulo h1 { font-size: 13pt; margin: 0 0 1.5mm; }
@@ -121,7 +121,7 @@ ${d.parcelas.map((p) => `<tr><td>${p.dias ?? ""}</td><td>${data(p.vencimento)}</
     : "";
 
   const corpo = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><style>${ESTILO}</style></head><body>
-<div class="topo"><div class="logo">ÔNIX<small>Produtos para Harmonização Facial</small></div><div class="empresa">Ônix - Produtos para Harmonização</div></div>
+<div class="topo"><img class="logo" src="${LOGO_ONIX_DATA_URI}" alt="Ônix - Produtos para Harmonização Facial"><div class="empresa">Ônix - Produtos para Harmonização</div></div>
 <div class="titulo"><h1>Pedido ${escaparHtml(d.pedido.numero)}</h1><img src="${codigos.pedido}" alt="${escaparHtml(d.pedido.codigoBarras)}"><div class="numero-cb">${escaparHtml(d.pedido.codigoBarras)}</div></div>
 <div class="rotulo">Cliente</div>
 <div class="linha-cliente">

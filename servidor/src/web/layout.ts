@@ -1,33 +1,34 @@
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import type { UsuarioSessao } from "./auth.ts";
 
-// Liquid Glass: painéis de vidro fosco flutuando sobre um fundo de pedra polida (ônix).
+// Liquid Glass nas cores da Ônix HOF (azul da marca + destaque cobre), fonte Sora como no site.
 const CSS = `
 :root {
-  --fundo: #dce8f8;
-  --tinta: #16202b;
-  --suave: #5b6775;
+  --fundo: #eef4fb;
+  --tinta: #10233f;
+  --suave: #5a6b82;
   --vidro: rgba(255, 255, 255, .56);
   --vidro-forte: rgba(255, 255, 255, .78);
   --borda-vidro: rgba(255, 255, 255, .8);
   --brilho: rgba(255, 255, 255, .9);
   --linha: rgba(22, 32, 43, .08);
   --sombra: 0 18px 40px -22px rgba(22, 40, 60, .35);
-  --jade: #0f8a7e;
-  --jade-suave: rgba(15, 138, 126, .12);
+  --marca: #0b5cb8;
+  --marca-clara: #3780d4;
+  --marca-suave: rgba(55, 128, 212, .13);
   --ok: #1e9e6a;
   --ruim: #d64545;
-  --atencao: #c98a12;
-  --mancha-1: #8ec5ff;
-  --mancha-2: #9cadff;
-  --mancha-3: #a3e4f7;
+  --atencao: #c8552d;
+  --mancha-1: #adc8ec;
+  --mancha-2: #d5e3f5;
+  --mancha-3: #f3d6ca;
   color-scheme: light;
 }
 * { box-sizing: border-box; }
 html { min-height: 100%; }
 body {
   margin: 0; min-height: 100vh; color: var(--tinta); background: var(--fundo);
-  font: 15px/1.5 "Manrope", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font: 15px/1.5 "Sora", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 body::before {
@@ -50,13 +51,14 @@ header { position: sticky; top: 0; z-index: 10; padding: 14px 16px 0; }
   box-shadow: inset 0 1px 0 var(--brilho), var(--sombra);
 }
 .ilha::-webkit-scrollbar { display: none; }
-.marca { font-weight: 800; letter-spacing: -.02em; margin-right: auto; white-space: nowrap; padding-right: 12px; }
-.marca small { font-weight: 500; color: var(--suave); margin-left: 6px; font-size: .9em; }
+.marca { display: flex; align-items: center; gap: 10px; margin-right: auto; white-space: nowrap; padding-right: 12px; }
+.marca img { height: 36px; width: auto; display: block; border-radius: 10px; box-shadow: 0 4px 12px -6px rgba(11, 92, 184, .6); }
+.marca small { font-weight: 600; color: var(--marca); font-size: .85em; padding-left: 10px; border-left: 1px solid var(--linha); }
 .ilha a, .ilha .sair {
   color: var(--tinta); text-decoration: none; white-space: nowrap; padding: 7px 14px; border-radius: 999px;
   font: inherit; font-size: .93rem; background: none; border: 0; cursor: pointer; transition: background .15s;
 }
-.ilha a:hover, .ilha .sair:hover { background: var(--jade-suave); }
+.ilha a:hover, .ilha .sair:hover { background: var(--marca-suave); }
 .ilha .quem { color: var(--suave); font-size: .88rem; padding: 0 8px 0 14px; white-space: nowrap; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 28px 16px 64px; }
@@ -72,7 +74,9 @@ h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; margin: 30px 
 .cartao h2 { margin-top: 0; }
 .estreito { max-width: 400px; margin: 8vh auto; }
 .entrada { margin-top: 16vh; padding: 30px 28px; }
-.entrada .marca { display: block; font-size: 1.5rem; margin: 0 0 22px; }
+.entrada .marca { flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 22px; }
+.entrada .marca img { height: 84px; border-radius: 16px; }
+.entrada .marca small { border-left: 0; padding-left: 0; }
 .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .grade .cartao { margin: 0; color: var(--suave); }
 .numero { font-size: 2.8rem; font-weight: 300; letter-spacing: -.04em; line-height: 1.1; color: var(--tinta); }
@@ -88,7 +92,7 @@ h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; margin: 30px 
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-weight: 600; font-size: .8rem; color: var(--suave); padding: 10px 12px; }
 td { padding: 11px 12px; border-top: 1px solid var(--linha); font-size: .93rem; white-space: nowrap; }
-td a { color: var(--jade); text-decoration: none; font-weight: 600; }
+td a { color: var(--marca-clara); text-decoration: none; font-weight: 600; }
 
 /* Formulários */
 label { display: block; margin-bottom: 14px; font-size: .88rem; color: var(--suave); }
@@ -96,18 +100,18 @@ input, select, textarea {
   display: block; width: 100%; margin-top: 6px; padding: 10px 12px; font: inherit; color: var(--tinta);
   background: var(--vidro-forte); border: 1px solid var(--linha); border-radius: 12px; transition: border-color .15s, box-shadow .15s;
 }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--jade); box-shadow: 0 0 0 4px var(--jade-suave); }
-input[type="checkbox"] { display: inline; width: auto; margin: 0 6px 0 0; accent-color: var(--jade); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--marca); box-shadow: 0 0 0 4px var(--marca-suave); }
+input[type="checkbox"] { display: inline; width: auto; margin: 0 6px 0 0; accent-color: var(--marca); }
 button, .botao {
   display: inline-block; padding: 10px 18px; border-radius: 999px; border: 0; cursor: pointer; text-decoration: none;
-  font: inherit; font-weight: 600; font-size: .93rem; color: #fff; background: var(--jade);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 16px -8px var(--jade); transition: transform .12s, filter .15s;
+  font: inherit; font-weight: 600; font-size: .93rem; color: #fff; background: var(--marca);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 16px -8px var(--marca); transition: transform .12s, filter .15s;
 }
 button:hover, .botao:hover { filter: brightness(1.06); }
 button:active, .botao:active { transform: scale(.97); }
 button.perigo { background: var(--ruim); box-shadow: 0 6px 16px -8px var(--ruim); }
-.cartao button.secundario, .botao.secundario { background: var(--jade-suave); color: var(--jade); box-shadow: none; }
-:focus-visible { outline: 2px solid var(--jade); outline-offset: 3px; }
+.cartao button.secundario, .botao.secundario { background: var(--marca-suave); color: var(--marca); box-shadow: none; }
+:focus-visible { outline: 2px solid var(--marca); outline-offset: 3px; }
 
 .filtros { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .filtros label { margin: 0; min-width: 150px; flex: 1; }
@@ -141,6 +145,11 @@ form.inline { display: inline; }
 }
 `;
 
+// Logo oficial + "Expedição". Usado no topo e no login.
+export function marca(): string {
+  return `<span class="marca"><img src="/marca/selo.jpg" alt="Ônix - Produtos para Harmonização Facial"><small>Expedição</small></span>`;
+}
+
 export function pagina(
   usuario: UsuarioSessao | null,
   titulo: string,
@@ -156,8 +165,8 @@ export function pagina(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 ${opts.atualizarSegundos ? `<meta http-equiv="refresh" content="${opts.atualizarSegundos}">` : ""}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <title>${escaparHtml(titulo)} — Expedição</title><style>${CSS}</style></head>
-<body>${usuario ? `<header><nav class="ilha"><span class="marca">Ônix HOF<small>Expedição</small></span>${nav}</nav></header>` : ""}
+<body>${usuario ? `<header><nav class="ilha">${marca()}${nav}</nav></header>` : ""}
 <main>${opts.semTitulo ? "" : `<h1>${escaparHtml(titulo)}</h1>`}${opts.mensagem ? `<div class="mensagem">${escaparHtml(opts.mensagem)}</div>` : ""}${conteudo}</main></body></html>`;
 }

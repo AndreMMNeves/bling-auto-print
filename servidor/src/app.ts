@@ -5,6 +5,7 @@ import type { Repositorio } from "./banco/repositorio.ts";
 import type { MontarFolha } from "./bling/montar-folha.ts";
 import type { Config } from "./config.ts";
 import { registrarApiAgente } from "./web/api-agente.ts";
+import { SELO_ONIX_JPG_BASE64 } from "../../compartilhado/marca.ts";
 import { registrarAuth } from "./web/auth.ts";
 import { registrarConfig } from "./web/config.ts";
 import { registrarAlertas } from "./web/alertas.ts";
@@ -29,6 +30,9 @@ export async function criarApp(d: DepsApp): Promise<FastifyInstance> {
   await app.register(formbody);
   await app.register(cookie, { secret: d.config.segredoSessao });
   registrarAuth(app, d); // primeiro: o hook de sessão precisa valer para todas as rotas
+  const selo = Buffer.from(SELO_ONIX_JPG_BASE64, "base64");
+  app.get("/marca/selo.jpg", async (_req, reply) =>
+    reply.type("image/jpeg").header("Cache-Control", "public, max-age=31536000, immutable").send(selo));
   registrarApiAgente(app, d);
   registrarUsuarios(app, d);
   registrarRelatorio(app, d);

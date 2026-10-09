@@ -66,3 +66,14 @@ test("usuário desativado não entra", async () => {
   const r = await app.inject({ method: "POST", url: "/login", payload: { email: "op@x.com", senha: "senha-op" } });
   assert.equal(r.statusCode, 401);
 });
+
+test("logo da Ônix no topo e no login, servido como imagem com cache", async () => {
+  const { app } = await appDeTeste();
+  const login = await app.inject({ url: "/login" });
+  assert.match(login.body, /<img src="\/marca\/selo\.jpg" alt="Ônix/);
+  const img = await app.inject({ url: "/marca/selo.jpg" });
+  assert.equal(img.statusCode, 200);
+  assert.equal(img.headers["content-type"], "image/jpeg");
+  assert.match(String(img.headers["cache-control"]), /max-age=31536000/);
+  assert.equal(img.rawPayload.subarray(0, 2).toString("hex"), "ffd8"); // assinatura JPEG
+});
