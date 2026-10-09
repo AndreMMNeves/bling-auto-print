@@ -3,11 +3,10 @@ import type { Repositorio } from "../banco/repositorio.ts";
 import type { MontarFolha } from "../bling/montar-folha.ts";
 import { reimprimir } from "../fila/fila.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
-import { ROTULO_STATUS } from "../relatorio.ts";
 import { formatarDataHora } from "../../../compartilhado/tempo.ts";
 import { listaAlertas } from "./alertas.ts";
 import { escopoFila, exigirLogin, exigirSupervisor, type UsuarioSessao } from "./auth.ts";
-import { pagina } from "./layout.ts";
+import { etiquetaStatus, pagina } from "./layout.ts";
 
 export const MOTIVOS_REIMPRESSAO = ["Folha perdida", "Folha danificada", "Pedido alterado", "Erro na impressora", "Outro"];
 
@@ -23,27 +22,31 @@ async function telaPedido(d: DepsPedidos, pedidoId: number, usuario: UsuarioSess
   const p = await d.repo.buscarPedidoPorId(pedidoId);
   if (!p || !(await visivel(d, p.id, usuario))) return null;
   const imps = await d.repo.impressoesDoPedido(p.id);
-  const linhas = imps.map((i) => `<tr><td>${i.via}ª via</td><td>${ROTULO_STATUS[i.status]}</td>
+  const linhas = imps.map((i) => `<tr><td>${i.via}ª via</td><td>${etiquetaStatus(i.status)}</td>
     <td>${formatarDataHora(i.impresso_em ?? i.criado_em)}</td><td>${escaparHtml(i.usuario) || "Automática"}</td>
     <td>${escaparHtml(i.motivo)}</td><td>${escaparHtml(i.ultimo_erro)}</td></tr>`).join("");
   const form = usuario.papel === "supervisor" ? `
-<form class="cartao estreito" method="post" action="/pedidos/${p.id}/reimprimir">
+<form class="cartao" method="post" action="/pedidos/${p.id}/reimprimir">
   <h2>Reimprimir</h2>
   ${erro ? `<p class="erro">${escaparHtml(erro)}</p>` : ""}
   <label>Motivo <select name="motivo">${MOTIVOS_REIMPRESSAO.map((m) => `<option>${m}</option>`).join("")}</select></label>
   <label>Se for "Outro", explique <input name="outro" maxlength="200"></label>
   <button>Reimprimir (sai como ${await d.repo.proximaVia(p.id)}ª via)</button>
 </form>` : "";
+  const alertas = await d.repo.alertasDoPedido(p.id);
   return pagina(usuario, `Pedido ${p.numero}`, `
-<div class="cartao">
-  <div><b>Detectado em:</b> ${formatarDataHora(p.detectado_em)} ${p.origem === "baseline" ? "(já estava Atendido quando o sistema foi ligado)" : ""}</div>
-  <div><b>Situação no Bling (id):</b> ${p.situacao}</div>
-</div>
-${listaAlertas(await d.repo.alertasDoPedido(p.id), usuario)}
+<div class="colunas">
+<section>
+<div class="cartao tabela ficha"><table>
+  <tr><th>Detectado em</th><td>${formatarDataHora(p.detectado_em)} ${p.origem === "baseline" ? "(já estava Atendido quando o sistema foi ligado)" : ""}</td></tr>
+  <tr><th>Situação no Bling (id)</th><td>${p.situacao}</td></tr>
+</table></div>
 <h2>Impressões</h2>
 <div class="cartao tabela"><table><thead><tr><th>Via</th><th>Status</th><th>Quando</th><th>Por</th><th>Motivo</th><th>Erro</th></tr></thead>
-<tbody>${linhas || `<tr><td colspan="6">Nenhuma impressão.</td></tr>`}</tbody></table></div>
-${form}`);
+<tbody>${linhas || `<tr><td class="vazio" colspan="6">Nenhuma impressão deste pedido.</td></tr>`}</tbody></table></div>
+</section>
+<aside>${alertas.length ? `<section class="secao"><h2>Alertas</h2>${listaAlertas(alertas, usuario, true)}</section>` : ""}${form ? `<section class="secao">${form}</section>` : ""}</aside>
+</div>`);
 }
 
 export function registrarPedidos(app: FastifyInstance, d: DepsPedidos): void {
@@ -55,7 +58,7 @@ export function registrarPedidos(app: FastifyInstance, d: DepsPedidos): void {
     }
     return reply.type("text/html").send(pagina(req.usuario, "Pedidos", `
 ${numero ? `<p class="erro">Pedido ${escaparHtml(numero)} não encontrado no sistema.</p>` : ""}
-<form class="cartao filtros" method="get"><label>Número do pedido <input name="numero" autofocus></label><button>Buscar</button></form>`));
+<form class="cartao filtros estreito" method="get"><label>Número do pedido <input name="numero" inputmode="numeric" autofocus></label><button>Buscar</button></form>`));
   });
 
   app.get<{ Params: { id: string } }>("/pedidos/:id", { preHandler: exigirLogin }, async (req, reply) => {

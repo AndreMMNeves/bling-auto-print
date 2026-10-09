@@ -12,8 +12,9 @@ async function tela(repo: Repositorio, usuario: UsuarioSessao, erro: string | nu
       <input type="hidden" name="ativo" value="${u.ativo ? "0" : "1"}"><button class="${u.ativo ? "perigo" : ""}">${u.ativo ? "Desativar" : "Reativar"}</button></form>`}</td>
   </tr>`).join("");
   return pagina(usuario, "Usuários", `
+<div class="colunas">
 <div class="cartao tabela"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Situação</th><th></th></tr></thead><tbody>${linhas}</tbody></table></div>
-<form class="cartao estreito" method="post" action="/usuarios">
+<form class="cartao" method="post" action="/usuarios">
   <h2>Novo usuário</h2>
   ${erro ? `<p class="erro">${escaparHtml(erro)}</p>` : ""}
   <label>Nome <input name="nome" required></label>
@@ -24,8 +25,9 @@ async function tela(repo: Repositorio, usuario: UsuarioSessao, erro: string | nu
     <option value="operador">Operador (só consulta, vê tudo)</option>
     <option value="supervisor">Supervisor (configura e reimprime)</option>
   </select></label>
-  <button>Criar</button>
-</form>`, { mensagem });
+  <button>Criar usuário</button>
+</form>
+</div>`, { mensagem });
 }
 
 const ROTULO_PAPEL: Record<Papel, string> = { supervisor: "Supervisor", operador: "Operador", expedicao: "Expedição" };

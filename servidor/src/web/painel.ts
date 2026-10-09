@@ -1,14 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { Expedicao, Repositorio } from "../banco/repositorio.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
-import { linhaParaColunas, COLUNAS_RELATORIO } from "../relatorio.ts";
+import { COLUNAS_RELATORIO } from "../relatorio.ts";
 import { AGENTE_OFFLINE_MS, statusBling, type Indicador } from "../status.ts";
 import { diaLocal, formatarDataHora, formatarHora } from "../../../compartilhado/tempo.ts";
 import { listaAlertas } from "./alertas.ts";
 import { escopoFila, exigirLogin, type UsuarioSessao } from "./auth.ts";
-import { pagina } from "./layout.ts";
+import { buscaPedido, celulasRelatorio, pagina } from "./layout.ts";
 
-const ind = (i: Indicador) => `<div><span class="bolinha ${i.ok ? "ok" : "ruim"}"></span>${escaparHtml(i.texto)}</div>`;
+// O painel mostra até a coluna Impressora; reimpresso por e motivo ficam no relatório.
+const COLUNAS_PAINEL = 8;
+
+const ind = (i: Indicador) => `<span><span class="bolinha ${i.ok ? "ok" : "ruim"}"></span>${escaparHtml(i.texto)}</span>`;
 
 // Supervisor mexe em todas; o login de expedição só na própria.
 const podeMexer = (u: UsuarioSessao, usuarioId: number) => u.papel === "supervisor" || (u.papel === "expedicao" && u.id === usuarioId);
@@ -23,18 +26,20 @@ async function cartaoExpedicao(repo: Repositorio, e: Expedicao, u: UsuarioSessao
       : { ok: true, texto: `PC conectado (${formatarHora(e.ultima_comunicacao)})${e.impressora_local ? ` · ${e.impressora_local}` : ""}` };
   const erros = e.impressora_id ? await repo.contarErros(e.impressora_id) : 0;
   const mexe = podeMexer(u, e.usuario_id);
+  // A chave já é o botão: um clique liga ou desliga. Quem não pode mexer só vê o estado.
+  const chave = `<button class="chave" role="switch" aria-checked="${ligada}"${mexe ? "" : " disabled"}>
+      <span class="trilho"></span>Impressão automática: <b>${ligada ? "Ligada" : "Desligada"}</b></button>`;
   return `<div class="cartao expedicao">
   <h2>${escaparHtml(e.nome)}</h2>
-  <div class="contagem">Consultores: ${consultores.length ? escaparHtml(consultores.join(", ")) : "nenhum (veja Consultores)"}</div>
+  <div class="cabeca">${mexe ? `<form class="inline" method="post" action="/expedicoes/${e.usuario_id}/impressao/${ligada ? "desligar" : "ligar"}">${chave}</form>` : chave}
+  </div>
+  ${ligada ? "" : `<p class="aviso-desligada">Desligada: as folhas são só salvas no PC, nada sai na impressora.</p>`}
+  <div class="consultores">Consultores: ${consultores.length ? escaparHtml(consultores.join(", ")) : "nenhum (veja Consultores)"}</div>
   <div class="status">
     ${ind(pc)}
-    <div><span class="bolinha ${ligada ? "ok" : "ruim"}"></span>Impressão automática: <b>${ligada ? "Ligada" : "Desligada"}</b>${ligada ? "" : " (as folhas são só salvas no PC)"}</div>
     ${erros ? ind({ ok: false, texto: `${erros} impressão(ões) com erro` }) : ""}
   </div>
-  ${mexe ? `<div class="acoes">
-    <form class="inline" method="post" action="/expedicoes/${e.usuario_id}/impressao/${ligada ? "desligar" : "ligar"}"><button class="${ligada ? "perigo" : ""}">${ligada ? "Desligar impressão" : "Ligar impressão"}</button></form>
-    ${erros ? `<form class="inline" method="post" action="/expedicoes/${e.usuario_id}/imprimir-pendentes"><button class="secundario">Imprimir pendentes</button></form>` : ""}
-  </div>` : ""}
+  ${mexe && erros ? `<div class="acoes"><form class="inline" method="post" action="/expedicoes/${e.usuario_id}/imprimir-pendentes"><button class="secundario">Imprimir pendentes</button></form></div>` : ""}
 </div>`;
 }
 
@@ -51,20 +56,27 @@ export function registrarPainel(app: FastifyInstance, d: { repo: Repositorio; ag
     const mensagem = req.query.reenfileirados !== undefined ? `${Number(req.query.reenfileirados)} impressão(ões) devolvida(s) para a fila.` : undefined;
     const semExpedicao = expedicoes.length ? "" : `<div class="cartao"><p>Nenhuma expedição cadastrada ainda.${u.papel === "supervisor" ? ` Crie um usuário com papel "Expedição" em <a href="/usuarios">Usuários</a> e escolha os consultores em <a href="/consultores">Consultores</a>.` : ""}</p></div>`;
 
+    const alertas = await d.repo.alertasPendentes(fila);
     const html = `
-<div class="cartao status">${ind(await statusBling(d.repo))}</div>
-<div class="grade">${cartoes}</div>${semExpedicao}
-<div class="grade">
-  <div class="cartao"><div class="numero">${c.impressos}</div>impressos hoje</div>
-  <div class="cartao"><div class="numero">${c.naFila}</div>na fila</div>
-  <div class="cartao"><div class="numero ${c.alertas ? "atencao" : ""}">${c.alertas}</div>alertas pendentes</div>
+<div class="cartao faixa">
+  <div><span class="numero">${c.impressos}</span>impressos hoje</div>
+  <div><span class="numero">${c.naFila}</span>na fila</div>
+  <div><span class="numero ${c.alertas ? "atencao" : ""}">${c.alertas}</span>alertas pendentes</div>
 </div>
-<h2>Alertas</h2>
-${listaAlertas((await d.repo.alertasPendentes(fila)).slice(0, 5), u)}
-<h2>Últimas impressões de hoje</h2>
-<div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((col) => `<th>${col}</th>`).join("")}</tr></thead>
-<tbody>${recentes.map((l) => `<tr>${linhaParaColunas(l).map((col) => `<td>${escaparHtml(col)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-    return reply.type("text/html").send(pagina(u, "Painel", html, { atualizarSegundos: 30, mensagem }));
+<div class="colunas">
+  <section>
+    <h2>Últimas impressões de hoje</h2>
+    <div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.slice(0, COLUNAS_PAINEL).map((col) => `<th>${col}</th>`).join("")}</tr></thead>
+    <tbody>${recentes.map((l) => `<tr>${celulasRelatorio(l, COLUNAS_PAINEL)}</tr>`).join("") || `<tr><td class="vazio" colspan="${COLUNAS_PAINEL}">Nenhuma impressão hoje ainda. As folhas aparecem aqui assim que os pedidos ficam Atendido no Bling.</td></tr>`}</tbody></table></div>
+    ${recentes.length ? `<a class="botao secundario" href="/relatorio">Ver relatório completo</a>` : ""}
+  </section>
+  <aside>
+    <section class="secao"><h2>Expedições</h2>${cartoes}${semExpedicao}</section>
+    <section class="secao"><h2>Alertas</h2>${listaAlertas(alertas.slice(0, 5), u)}${alertas.length > 5 ? `<a class="botao secundario" href="/alertas">Ver todos os ${alertas.length} alertas</a>` : ""}</section>
+  </aside>
+</div>`;
+    const topo = `${buscaPedido()}<span class="pilula">${ind(await statusBling(d.repo))}</span>`;
+    return reply.type("text/html").send(pagina(u, "Painel", html, { atualizarSegundos: 30, mensagem, topo }));
   });
 
   app.post<{ Params: { usuarioId: string; acao: string } }>("/expedicoes/:usuarioId/impressao/:acao", { preHandler: exigirLogin }, async (req, reply) => {

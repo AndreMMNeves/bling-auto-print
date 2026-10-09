@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { FiltroRelatorio, Repositorio } from "../banco/repositorio.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
-import { COLUNAS_RELATORIO, gerarCsv, linhaParaColunas } from "../relatorio.ts";
+import { COLUNAS_RELATORIO, gerarCsv } from "../relatorio.ts";
 import { diaLocal } from "../../../compartilhado/tempo.ts";
 import { escopoFila, exigirLogin } from "./auth.ts";
-import { pagina } from "./layout.ts";
+import { celulasRelatorio, pagina } from "./layout.ts";
 
 type Query = { de?: string; ate?: string; vendedor?: string; pedido?: string; so?: string; p?: string };
 const POR_PAGINA = 50;
@@ -34,17 +34,17 @@ export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio;
   <span>Página ${atual} de ${totalPaginas}</span>
   ${atual < totalPaginas ? `<a class="botao secundario" href="${link(atual + 1)}">Próxima</a>` : ""}
 </nav>` : "";
-    const corpo = linhas.map((l) => `<tr>${linhaParaColunas(l).map((c, i) =>
-      i === 1 ? `<td><a href="/pedidos?numero=${encodeURIComponent(c)}">${escaparHtml(c)}</a></td>` : `<td>${escaparHtml(c)}</td>`).join("")}</tr>`).join("");
+    const corpo = linhas.map((l) => `<tr>${celulasRelatorio(l)}</tr>`).join("")
+      || `<tr><td class="vazio" colspan="${COLUNAS_RELATORIO.length}">Nenhuma impressão com esses filtros.</td></tr>`;
     return reply.type("text/html").send(pagina(req.usuario, "Relatório de impressões", `
 <form class="cartao filtros" method="get">
   <label>De <input type="date" name="de" value="${f.de}"></label>
   <label>Até <input type="date" name="ate" value="${f.ate}"></label>
   <label>Vendedor <input name="vendedor" value="${escaparHtml(f.vendedor)}"></label>
   <label>Pedido <input name="pedido" value="${escaparHtml(f.pedido)}"></label>
-  <label><input type="checkbox" name="so" value="1" ${f.soReimpressoes ? "checked" : ""} style="display:inline;width:auto"> Só reimpressões</label>
+  <label class="marcar"><input type="checkbox" name="so" value="1" ${f.soReimpressoes ? "checked" : ""}>Só reimpressões</label>
   <button>Filtrar</button>
-  <a class="botao" href="/relatorio.csv?${qs}">Exportar para Excel</a>
+  <a class="botao secundario" href="/relatorio.csv?${qs}">Exportar para Excel</a>
 </form>
 <p class="contagem">${todas.length === 1 ? "1 impressão" : `${todas.length} impressões`}</p>
 <div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${corpo}</tbody></table></div>

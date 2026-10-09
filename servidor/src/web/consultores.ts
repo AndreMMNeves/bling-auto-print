@@ -41,7 +41,7 @@ export function registrarConsultores(app: FastifyInstance, d: DepsConsultores): 
 ${semExpedicao}${aviso}
 <form method="post" action="/consultores">
   <div class="cartao tabela"><table><thead><tr><th>Consultor (vendedor no Bling)</th><th>Imprime na expedição</th></tr></thead><tbody>${linhas}</tbody></table></div>
-  <button>Salvar</button>
+  <div class="barra-salvar"><button>Salvar consultores</button></div>
 </form>`, { mensagem: req.query.ok ? "Consultores salvos." : undefined }));
   });
 
