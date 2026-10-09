@@ -38,7 +38,8 @@ body { font-family: Arial, Helvetica, sans-serif; font-size: 8.5pt; color: #000;
 .empresa { font-size: 8pt; }
 .titulo { text-align: center; margin: 2mm 0 4mm; }
 .titulo h1 { font-size: 13pt; margin: 0 0 1.5mm; }
-.titulo img { height: 13mm; }
+.titulo img { width: 62mm; height: auto; display: block; margin: 0 auto; }
+.titulo .numero-cb { font-family: "Courier New", monospace; font-size: 10pt; letter-spacing: 2px; margin-top: .5mm; }
 .rotulo { font-weight: bold; font-size: 7.5pt; margin: 3mm 0 1mm; }
 .caixa { border: 1px solid #000; padding: 1.5mm 2mm; }
 .linha-cliente { display: flex; gap: 3mm; align-items: flex-start; }
@@ -121,7 +122,7 @@ ${d.parcelas.map((p) => `<tr><td>${p.dias ?? ""}</td><td>${data(p.vencimento)}</
 
   const corpo = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><style>${ESTILO}</style></head><body>
 <div class="topo"><div class="logo">ÔNIX<small>Produtos para Harmonização Facial</small></div><div class="empresa">Ônix - Produtos para Harmonização</div></div>
-<div class="titulo"><h1>Pedido ${escaparHtml(d.pedido.numero)}</h1><img src="${codigos.pedido}" alt="${escaparHtml(d.pedido.codigoBarras)}"></div>
+<div class="titulo"><h1>Pedido ${escaparHtml(d.pedido.numero)}</h1><img src="${codigos.pedido}" alt="${escaparHtml(d.pedido.codigoBarras)}"><div class="numero-cb">${escaparHtml(d.pedido.codigoBarras)}</div></div>
 <div class="rotulo">Cliente</div>
 <div class="linha-cliente">
   <div class="caixa">
