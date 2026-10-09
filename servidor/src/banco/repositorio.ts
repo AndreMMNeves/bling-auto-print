@@ -3,7 +3,8 @@ import { fimDoDia, inicioDoDia } from "../../../compartilhado/tempo.ts";
 import type { Banco, Param } from "./banco.ts";
 
 export type Situacao = number;
-export type StatusImpressao = "fila" | "imprimindo" | "impresso" | "erro";
+// "salvo": impressão automática desligada no painel; o PDF ficou só no PC.
+export type StatusImpressao = "fila" | "imprimindo" | "impresso" | "salvo" | "erro";
 export type TipoAlerta = "repetido" | "cancelado" | "falha_impressao" | "retomada" | "bling_desconectado";
 
 export type PedidoRow = {
@@ -221,9 +222,9 @@ export class Repositorio {
   }
 
   // Marca impresso e enfileira para a planilha na mesma transação.
-  async registrarImpressa(id: number, agora: Date): Promise<void> {
+  async registrarImpressa(id: number, agora: Date, status: "impresso" | "salvo" = "impresso"): Promise<void> {
     await this.db.transacao(async (consultar) => {
-      await consultar("UPDATE impressoes SET status = 'impresso', impresso_em = ?, ultimo_erro = NULL WHERE id = ?", [agora.toISOString(), id]);
+      await consultar("UPDATE impressoes SET status = ?, impresso_em = ?, ultimo_erro = NULL WHERE id = ?", [status, agora.toISOString(), id]);
       await consultar("INSERT INTO fila_planilha (impressao_id) VALUES (?) ON CONFLICT (impressao_id) DO NOTHING", [id]);
     });
   }

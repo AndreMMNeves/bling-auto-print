@@ -1,5 +1,5 @@
 // Postgres (Supabase / PGlite). Datas ficam como texto ISO UTC, como no resto do sistema.
-// Comandos separados por ";" (abrirBanco executa um por um).
+// Comandos separados por ";" no fim da linha; blocos com ";" dentro ficam entre linhas "@@".
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS estado (
   chave TEXT PRIMARY KEY,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS impressoes (
   via INTEGER NOT NULL,
   tipo_documento TEXT NOT NULL DEFAULT 'folha_separacao',
   dados_json TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('fila', 'imprimindo', 'impresso', 'erro')),
+  status TEXT NOT NULL,
   tentativas INTEGER NOT NULL DEFAULT 0,
   ultimo_erro TEXT,
   motivo TEXT,
@@ -58,6 +58,14 @@ CREATE TABLE IF NOT EXISTS impressoes (
   impresso_em TEXT,
   UNIQUE (pedido_id, tipo_documento, via)
 );
+@@
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'impressoes_status_check' AND pg_get_constraintdef(oid) LIKE '%salvo%') THEN
+    ALTER TABLE impressoes DROP CONSTRAINT IF EXISTS impressoes_status_check;
+    ALTER TABLE impressoes ADD CONSTRAINT impressoes_status_check CHECK (status IN ('fila', 'imprimindo', 'impresso', 'salvo', 'erro'));
+  END IF;
+END $$
+@@
 CREATE INDEX IF NOT EXISTS impressoes_fila ON impressoes (impressora_id, status, id);
 CREATE INDEX IF NOT EXISTS impressoes_criado ON impressoes (criado_em);
 CREATE TABLE IF NOT EXISTS alertas (

@@ -21,9 +21,16 @@ export function paraPostgres(sql: string): string {
 export async function abrirBanco(url: string): Promise<Banco> {
   const banco = url.startsWith("postgres") ? await abrirPostgres(url) : await abrirPglite(url);
   await banco.transacao(async (consultar) => {
-    for (const comando of SCHEMA.split(";").map((c) => c.trim()).filter(Boolean)) await consultar(comando);
+    for (const comando of comandosDoSchema(SCHEMA)) await consultar(comando);
   });
   return banco;
+}
+
+// Separa em comandos: ";" no fim da linha, exceto dentro de blocos marcados com linhas "@@".
+export function comandosDoSchema(schema: string): string[] {
+  return schema.split(/^@@?$/m).flatMap((parte, i) =>
+    i % 2 === 1 ? [parte.trim()] : parte.split(/;\s*$/m).map((c) => c.trim()),
+  ).filter(Boolean);
 }
 
 async function abrirPostgres(url: string): Promise<Banco> {

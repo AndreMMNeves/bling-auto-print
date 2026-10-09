@@ -26,10 +26,12 @@ export function registrarApiAgente(app: FastifyInstance, d: DepsApiAgente): void
     if (!agente) return reply;
     const t = await entregarProximo(d.repo, agente.impressora_id, d.agora());
     if (!t) return reply.code(204).send();
-    return { id: t.impressaoId, impressora: agente.impressora_nome, dados: t.dados, via: t.via };
+    // Botão "Impressão automática" do painel: desligada = o agente só salva o PDF.
+    const imprimir = (await d.repo.obterEstado("impressao:ligada")) === "1";
+    return { id: t.impressaoId, impressora: agente.impressora_nome, dados: t.dados, via: t.via, imprimir };
   });
 
-  app.post<{ Params: { id: string }; Body: { ok?: boolean; erro?: string } }>(
+  app.post<{ Params: { id: string }; Body: { ok?: boolean; salvo?: boolean; erro?: string } }>(
     "/api/agente/impressoes/:id/resultado",
     async (req, reply) => {
       const agente = await autenticar(req, reply);
@@ -37,7 +39,7 @@ export function registrarApiAgente(app: FastifyInstance, d: DepsApiAgente): void
       const imp = await d.repo.buscarImpressao(Number(req.params.id));
       if (!imp || imp.impressora_id !== agente.impressora_id) return reply.code(404).send({ erro: "impressão não encontrada" });
       const b = req.body ?? {};
-      await registrarResultado(d.repo, imp.id, b.ok ? { ok: true } : { ok: false, erro: String(b.erro ?? "erro desconhecido") }, d.agora());
+      await registrarResultado(d.repo, imp.id, b.ok ? { ok: true, salvo: b.salvo === true } : { ok: false, erro: String(b.erro ?? "erro desconhecido") }, d.agora());
       return { ok: true };
     },
   );

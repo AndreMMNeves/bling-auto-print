@@ -2,7 +2,7 @@ import type { LinhaRelatorio, StatusImpressao } from "./banco/repositorio.ts";
 import { formatarDataHora } from "../../compartilhado/tempo.ts";
 
 export const ROTULO_STATUS: Record<StatusImpressao, string> = {
-  fila: "Na fila", imprimindo: "Imprimindo", impresso: "Impresso", erro: "Erro",
+  fila: "Na fila", imprimindo: "Imprimindo", impresso: "Impresso", salvo: "Salvo (impressão desligada)", erro: "Erro",
 };
 
 export const COLUNAS_RELATORIO = ["Horário", "Pedido", "Cliente", "Vendedor", "Itens", "Via", "Status", "Impressora", "Reimpresso por", "Motivo"];

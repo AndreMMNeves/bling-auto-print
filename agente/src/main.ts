@@ -6,7 +6,9 @@ import { carregarConfigAgente, RAIZ_AGENTE } from "./config.ts";
 import { ImpressoraPasta, ImpressoraWindows } from "./impressora.ts";
 
 const c = carregarConfigAgente(process.argv[2] ?? join(RAIZ_AGENTE, "agente/config.json"));
-const impressora = c.modo === "pasta" ? new ImpressoraPasta(c.pasta) : new ImpressoraWindows();
+// modo "pasta" no config = trava de segurança: nunca imprime, mesmo com o botão do painel ligado.
+const pasta = new ImpressoraPasta(c.pasta);
+const impressora = c.modo === "pasta" ? pasta : new ImpressoraWindows();
 const gerador = new GeradorPdf(c.chromePath);
 console.info(`[agente] iniciado: modo=${c.modo}${c.modo === "pasta" ? ` (${c.pasta})` : ""}, servidor=${c.servidorUrl}`);
 
@@ -25,7 +27,7 @@ repetir(c.cicloSegundos * 1000, async () => {
 // Busca e imprime o que estiver na fila.
 repetir(c.intervaloSegundos * 1000, async () => {
   try {
-    const n = await esvaziarFila({ servidorUrl: c.servidorUrl, token: c.token, impressora, gerarPdf: (d, v) => gerador.gerar(d, v) });
+    const n = await esvaziarFila({ servidorUrl: c.servidorUrl, token: c.token, impressora, pasta, gerarPdf: (d, v) => gerador.gerar(d, v) });
     if (n) console.info(`[agente] ${n} trabalho(s) processado(s)`);
   } catch (e) {
     erro(e);

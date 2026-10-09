@@ -4,10 +4,11 @@ export type Impressora = { imprimir(pdf: Buffer, nomeImpressora: string, id: num
 // O servidor (Vercel) manda só os dados; o PDF é gerado aqui, com o Chrome do PC.
 export type GerarPdf = (dados: DadosFolha, via: Via) => Promise<Buffer>;
 export type DepsAgente = {
-  servidorUrl: string; token: string; impressora: Impressora; gerarPdf: GerarPdf;
+  // pasta: onde salvar quando a impressão automática está desligada no painel.
+  servidorUrl: string; token: string; impressora: Impressora; pasta?: Impressora; gerarPdf: GerarPdf;
   fetch?: typeof fetch; esperar?: (ms: number) => Promise<void>;
 };
-export type ResultadoAgente = "vazio" | "impresso" | "falhou";
+export type ResultadoAgente = "vazio" | "impresso" | "salvo" | "falhou";
 
 export async function processarUm(d: DepsAgente): Promise<ResultadoAgente> {
   const f = d.fetch ?? fetch;
@@ -16,19 +17,23 @@ export async function processarUm(d: DepsAgente): Promise<ResultadoAgente> {
   const r = await f(`${d.servidorUrl}/api/agente/proximo`, { headers: auth });
   if (r.status === 204) return "vazio";
   if (!r.ok) throw new Error(`Servidor respondeu ${r.status} ao pedir o próximo trabalho`);
-  const t = (await r.json()) as { id: number; impressora: string; dados: DadosFolha; via: Via };
+  const t = (await r.json()) as { id: number; impressora: string; dados: DadosFolha; via: Via; imprimir?: boolean };
+  const soSalvar = t.imprimir === false;
+  const destino = soSalvar ? d.pasta : d.impressora;
 
-  let resultado: { ok: true } | { ok: false; erro: string };
+  let resultado: { ok: true; salvo?: true } | { ok: false; erro: string };
   let pdf: Buffer | null = null;
   try {
     pdf = await d.gerarPdf(t.dados, t.via);
   } catch (e) {
     resultado = { ok: false, erro: `Falha ao gerar o PDF: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (pdf) {
+  if (pdf && !destino) {
+    resultado = { ok: false, erro: "Impressão desligada e o agente não tem pasta configurada" };
+  } else if (pdf && destino) {
     try {
-      await d.impressora.imprimir(pdf, t.impressora, t.id);
-      resultado = { ok: true };
+      await destino.imprimir(pdf, t.impressora, t.id);
+      resultado = soSalvar ? { ok: true, salvo: true } : { ok: true };
     } catch (e) {
       resultado = { ok: false, erro: e instanceof Error ? e.message : String(e) };
     }
@@ -47,7 +52,7 @@ export async function processarUm(d: DepsAgente): Promise<ResultadoAgente> {
         headers: { ...auth, "Content-Type": "application/json" },
         body: JSON.stringify(resultado),
       });
-      if (rr.ok) return resultado.ok ? "impresso" : "falhou";
+      if (rr.ok) return !resultado.ok ? "falhou" : soSalvar ? "salvo" : "impresso";
       ultimoErro = `status ${rr.status}`;
       if (rr.status < 500) break; // 4xx não melhora tentando de novo
     } catch (e) {

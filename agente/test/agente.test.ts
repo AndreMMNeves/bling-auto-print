@@ -122,3 +122,19 @@ test("dispararCiclo pede ao servidor para consultar o Bling", async () => {
   assert.deepEqual(chamadas, [{ url: "https://x.vercel.app/api/agente/ciclo", metodo: "POST", auth: "Bearer tk" }]);
   assert.deepEqual(r, { executado: true, resultado: { monitor: "2 novo(s)" } });
 });
+
+test("impressão desligada no painel: só salva o PDF e avisa o servidor que foi salvo", async () => {
+  const resultados: unknown[] = [];
+  const f = async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url).endsWith("/api/agente/proximo")) return Response.json({ ...trabalho(7), imprimir: false });
+    resultados.push(JSON.parse(String(init!.body)));
+    return Response.json({ ok: true });
+  };
+  const impressora = impressoraFalsa();
+  const pasta = impressoraFalsa();
+  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressora.imp, pasta: pasta.imp, fetch: f as typeof fetch, gerarPdf });
+  assert.equal(r, "salvo");
+  assert.equal(impressora.impressos.length, 0);
+  assert.deepEqual(pasta.impressos.map((x) => x.id), [7]);
+  assert.deepEqual(resultados, [{ ok: true, salvo: true }]);
+});

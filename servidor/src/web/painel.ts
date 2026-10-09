@@ -21,7 +21,12 @@ export function registrarPainel(app: FastifyInstance, d: { repo: Repositorio; im
     const recentes = (await d.repo.relatorio({ de: hoje, ate: hoje })).slice(0, 20);
     const mensagem = req.query.reenfileirados !== undefined ? `${Number(req.query.reenfileirados)} impressão(ões) devolvida(s) para a fila.` : undefined;
 
+    const ligada = (await d.repo.obterEstado("impressao:ligada")) === "1";
     const html = `
+<div class="cartao status">
+  <div><span class="bolinha ${ligada ? "ok" : "ruim"}"></span>Impressão automática: <b>${ligada ? "Ligada" : "Desligada"}</b>${ligada ? "" : " (as folhas são só salvas no PC)"}</div>
+  ${supervisor ? `<form class="inline" method="post" action="/impressao/${ligada ? "desligar" : "ligar"}"><button class="${ligada ? "perigo" : ""}">${ligada ? "Desligar impressão" : "Ligar impressão"}</button></form>` : ""}
+</div>
 <div class="cartao status">${ind(s.bling)}${ind(s.agente)}${ind(s.impressora)}
   ${supervisor && !s.impressora.ok ? `<form class="inline" method="post" action="/fila/imprimir-pendentes"><button>Imprimir pendentes</button></form>` : ""}
 </div>
@@ -36,6 +41,12 @@ ${listaAlertas((await d.repo.alertasPendentes()).slice(0, 5), req.usuario!)}
 <div class="cartao tabela"><table><thead><tr>${COLUNAS_RELATORIO.map((col) => `<th>${col}</th>`).join("")}</tr></thead>
 <tbody>${recentes.map((l) => `<tr>${linhaParaColunas(l).map((col) => `<td>${escaparHtml(col)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     return reply.type("text/html").send(pagina(req.usuario, "Painel", html, { atualizarSegundos: 30, mensagem }));
+  });
+
+  app.post<{ Params: { acao: string } }>("/impressao/:acao", { preHandler: exigirSupervisor }, async (req, reply) => {
+    if (req.params.acao !== "ligar" && req.params.acao !== "desligar") return reply.code(404).send();
+    await d.repo.definirEstado("impressao:ligada", req.params.acao === "ligar" ? "1" : null);
+    return reply.redirect("/");
   });
 
   app.post("/fila/imprimir-pendentes", { preHandler: exigirSupervisor }, async (req, reply) => {

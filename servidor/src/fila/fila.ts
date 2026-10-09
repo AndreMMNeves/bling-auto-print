@@ -20,7 +20,7 @@ export async function entregarProximo(repo: Repositorio, impressoraId: number, a
 export async function registrarResultado(
   repo: Repositorio,
   impressaoId: number,
-  r: { ok: true } | { ok: false; erro: string },
+  r: { ok: true; salvo?: boolean } | { ok: false; erro: string },
   agora: Date,
 ): Promise<void> {
   const imp = await repo.buscarImpressao(impressaoId);
@@ -28,7 +28,7 @@ export async function registrarResultado(
 
   if (r.ok) {
     // Vale mesmo se ela já tinha sido marcada como travada/erro: a folha saiu.
-    await repo.registrarImpressa(imp.id, agora);
+    await repo.registrarImpressa(imp.id, agora, r.salvo ? "salvo" : "impresso");
     return;
   }
 

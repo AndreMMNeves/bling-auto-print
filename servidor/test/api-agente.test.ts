@@ -75,3 +75,21 @@ test("ciclo: o agente dispara as tarefas periódicas, no máximo a cada 20 s", a
   assert.equal(((await c.f.inject({ method: "POST", url: "/api/agente/ciclo", headers: auth })).json() as { executado: boolean }).executado, true);
   assert.equal(c.ciclos(), 2);
 });
+
+test("cada trabalho diz se é para imprimir ou só salvar (botão do painel)", async () => {
+  const c = await app();
+  const r1 = (await c.f.inject({ url: "/api/agente/proximo", headers: auth })).json() as { imprimir: boolean };
+  assert.equal(r1.imprimir, false); // começa desligada
+  await c.repo.definirEstado("impressao:ligada", "1");
+  const pedidoId = await c.repo.inserirPedido({ filialId: c.filialId, numero: "11", idBling: 1011, situacao: 9, origem: "monitor", agora: AGORA });
+  await c.repo.criarImpressao({ pedidoId, impressoraId: c.impressoraId, via: 1, dados: dadosFolhaExemplo(1, "11"), motivo: null, usuarioId: null, agora: AGORA });
+  const r2 = (await c.f.inject({ url: "/api/agente/proximo", headers: auth })).json() as { imprimir: boolean };
+  assert.equal(r2.imprimir, true);
+});
+
+test("resultado 'salvo' (impressão desligada) fica como salvo, não como impresso", async () => {
+  const c = await app();
+  await c.f.inject({ url: "/api/agente/proximo", headers: auth });
+  await c.f.inject({ method: "POST", url: `/api/agente/impressoes/${c.impressaoId}/resultado`, headers: auth, payload: { ok: true, salvo: true } });
+  assert.equal((await c.repo.buscarImpressao(c.impressaoId))!.status, "salvo");
+});
