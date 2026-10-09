@@ -28,9 +28,27 @@ export async function abrirBanco(url: string): Promise<Banco> {
 
 // Separa em comandos: ";" no fim da linha, exceto dentro de blocos marcados com linhas "@@".
 export function comandosDoSchema(schema: string): string[] {
-  return schema.split(/^@@?$/m).flatMap((parte, i) =>
-    i % 2 === 1 ? [parte.trim()] : parte.split(/;\s*$/m).map((c) => c.trim()),
-  ).filter(Boolean);
+  const comandos: string[] = [];
+  let atual: string[] = [];
+  let emBloco = false;
+  for (const bruta of schema.split("\n")) {
+    const linha = bruta.trimEnd(); // também remove o "\r" de arquivos com CRLF
+    if (linha === "@@") {
+      if (emBloco) {
+        comandos.push(atual.join("\n"));
+        atual = [];
+      }
+      emBloco = !emBloco;
+      continue;
+    }
+    atual.push(linha);
+    if (!emBloco && linha.endsWith(";")) {
+      comandos.push(atual.join("\n").slice(0, -1));
+      atual = [];
+    }
+  }
+  comandos.push(atual.join("\n"));
+  return comandos.map((c) => c.trim()).filter(Boolean);
 }
 
 async function abrirPostgres(url: string): Promise<Banco> {
