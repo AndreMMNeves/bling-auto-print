@@ -135,7 +135,9 @@ test("obterPedido normaliza campos ausentes", async () => {
   assert.equal(p.numeroLoja, null);
   assert.equal(p.vendedorId, null);
   assert.equal(p.contato.numeroDocumento, null);
-  assert.deepEqual(p.itens[0], { codigo: "AH-1", descricao: "Ácido", quantidade: 1.5, produtoId: 5 });
+  assert.deepEqual(p.itens[0], { codigo: "AH-1", descricao: "Ácido", descricaoDetalhada: null, unidade: null, quantidade: 1.5, valor: 0, descontoPct: 0, produtoId: 5 });
+  assert.equal(p.dataPrevista, null);
+  assert.deepEqual(p.parcelas, []);
   assert.equal(p.transporte, "SEDEX");
   assert.equal(p.etiqueta?.municipio, "Vitória");
   assert.equal(p.etiqueta?.complemento, null);

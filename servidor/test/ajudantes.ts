@@ -32,21 +32,39 @@ export async function executar(repo: Repositorio, sql: string, ...args: Array<st
 }
 
 export function dadosFolhaExemplo(qtdItens = 2, numero = "12345"): DadosFolha {
+  const itens = Array.from({ length: qtdItens }, (_, i) => ({
+    descricao: `Produto ${i + 1}`,
+    sku: `SKU-${String(i + 1).padStart(3, "0")}`,
+    unidade: "Un",
+    localizacao: `F${100 + i}`,
+    quantidade: i + 1,
+    precoLista: 100,
+    descontoPct: 0,
+    valorUnitario: 100,
+    total: 100 * (i + 1),
+    detalhes: [] as string[],
+    ean: `78900000${String(i + 1).padStart(5, "0")}`,
+  }));
+  const totalProdutos = itens.reduce((s, i) => s + (i.total ?? 0), 0);
   return {
     filial: "Espírito Santo",
     pedido: {
-      numero, numeroLoja: null, idBling: 9000 + Number(numero), data: "2026-10-08",
+      numero, numeroLoja: null, idBling: 9000 + Number(numero), data: "2026-10-08", dataPrevista: null,
       atendidoEm: AGORA.toISOString(), vendedor: "Fulano", observacoes: null, codigoBarras: numero,
     },
-    cliente: { nome: "Clínica X", documento: "12.345.678/0001-90" },
+    cliente: {
+      nome: "Clínica X", fantasia: null, documento: "12.345.678/0001-90", endereco: "Rua A, N° 10, Bairro: Centro.",
+      cidade: "29000000 - Vitória, ES", telefone: "Fone: (27) 3333-4444", email: "clinica@x.com",
+    },
     entrega: { endereco: "Rua A, 10", cidadeUf: "Vitória/ES", cep: "29000-000" },
     transporte: "SEDEX",
-    itens: Array.from({ length: qtdItens }, (_, i) => ({
-      quantidade: i + 1,
-      sku: `SKU-${String(i + 1).padStart(3, "0")}`,
-      descricao: `Produto ${i + 1}`,
-      ean: `78900000${String(i + 1).padStart(5, "0")}`,
-    })),
+    transportador: { nome: "Correios", modalidade: "Contratação do Frete por conta do Remetente (CIF)", servico: "SEDEX" },
+    totais: {
+      qtdItens: itens.length, somaQtd: itens.reduce((s, i) => s + i.quantidade, 0), descontoItens: 0,
+      totalProdutos, frete: 20, outrasDespesas: 0, descontoPedido: 0, total: totalProdutos + 20,
+    },
+    parcelas: [{ dias: 0, vencimento: "2026-10-08", forma: "PIX - ITAÚ", valor: totalProdutos + 20, observacao: null }],
+    itens,
   };
 }
 

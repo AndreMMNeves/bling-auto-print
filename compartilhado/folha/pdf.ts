@@ -13,9 +13,6 @@ export class GeradorPdf {
 
   async gerar(dados: DadosFolha, via: Via): Promise<Buffer> {
     const codigos: CodigosFolha = { pedido: await codigoBarrasDataUri(dados.pedido.codigoBarras), porSku: new Map() };
-    for (const i of dados.itens) {
-      if (!i.ean && i.sku && !codigos.porSku.has(i.sku)) codigos.porSku.set(i.sku, await codigoBarrasDataUri(i.sku));
-    }
     const { corpo, cabecalho, rodape } = renderizarFolha(dados, via, codigos);
 
     const page = await (await this.#abrir()).newPage();
@@ -27,7 +24,7 @@ export class GeradorPdf {
         displayHeaderFooter: true,
         headerTemplate: cabecalho,
         footerTemplate: rodape,
-        margin: { top: "24mm", bottom: "12mm", left: "10mm", right: "10mm" },
+        margin: { top: "14mm", bottom: "12mm", left: "10mm", right: "10mm" },
       });
       return Buffer.from(pdf);
     } finally {

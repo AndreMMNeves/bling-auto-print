@@ -1,79 +1,122 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { criarMontadorFolha, type FonteBling } from "../src/bling/montar-folha.ts";
-import type { PedidoBling } from "../src/bling/cliente.ts";
+import type { PedidoBling, ProdutoBling } from "../src/bling/cliente.ts";
 import { AGORA } from "./ajudantes.ts";
 
+// Baseado no pedido 297469 do Bling SP (modelo de impressão enviado pelo usuário).
 const pedido = (extra: Partial<PedidoBling> = {}): PedidoBling => ({
-  id: 77, numero: "12345", numeroLoja: "MP-999", data: "2026-10-08",
-  contato: { nome: "Clínica X", numeroDocumento: "123" }, vendedorId: 3,
+  id: 77, numero: "297469", numeroLoja: null, data: "2026-10-09", dataPrevista: null,
+  contato: { id: 500, nome: "Vitoria Chalega de Lima", numeroDocumento: "435.242.208-86" }, vendedorId: 3,
   itens: [
-    { codigo: "ZZ-9", descricao: "Cânula", quantidade: 10, produtoId: 2 },
-    { codigo: "AH-1", descricao: "Ácido", quantidade: 3, produtoId: 1 },
-    { codigo: null, descricao: "Brinde", quantidade: 1, produtoId: null },
+    { codigo: "ON.9", descricao: "BIOGELIS GLOBAL WITH LIDOCAINE 20 MG/ML+0, 3% LIDOCAINA", descricaoDetalhada: null, unidade: "Un", quantidade: 1, valor: 407, descontoPct: 0, produtoId: 9 },
+    { codigo: "ON.11", descricao: "BIOGELIS VOLUME WITH LIDOCAINE 25 MG/ML+0, 3% LIDOCAINA", descricaoDetalhada: null, unidade: "Un", quantidade: 1, valor: 417, descontoPct: 0, produtoId: 11 },
+    { codigo: null, descricao: "Brinde", descricaoDetalhada: "Amostra grátis", unidade: null, quantidade: 2, valor: 10, descontoPct: 50, produtoId: null },
   ],
-  etiqueta: { endereco: "Rua A", numero: "10", complemento: "Sala 2", bairro: "Centro", municipio: "Vitória", uf: "ES", cep: "29000-000" },
-  transporte: "SEDEX", observacoes: "Frágil", ...extra,
+  etiqueta: { endereco: "Rua Urânio", numero: "89", complemento: null, bairro: "Parque Primavera", municipio: "Guarulhos", uf: "SP", cep: "07145140" },
+  transporte: null, observacoes: null,
+  totalProdutos: 834, total: 874, outrasDespesas: 0, desconto: { valor: 0, unidade: "REAL" },
+  parcelas: [{ vencimento: "2026-10-09", valor: 874, observacao: null, formaPagamentoId: 6503483 }],
+  frete: 40, fretePorConta: 0, transportadorNome: "JPL TARDE (11:10 AS 14:30)",
+  ...extra,
 });
 
-function fonte(p: PedidoBling) {
-  const chamadas = { vendedor: 0, produto: 0 };
+const produto = (id: number): ProdutoBling => ({
+  gtin: id === 11 ? "7891111111111" : null, codigo: null, localizacao: id === 11 ? "F101" : "F102",
+  pesoBruto: 0.2, dimensoes: { largura: 20, altura: 8, profundidade: 10 },
+});
+
+function fonte(p: PedidoBling, falhas: { contato?: boolean } = {}) {
+  const chamadas = { vendedor: 0, forma: 0 };
   const f: FonteBling = {
     obterPedido: async () => p,
-    obterProduto: async (id) => { chamadas.produto++; return { gtin: id === 1 ? "7891111111111" : null, codigo: null }; },
-    obterVendedor: async () => { chamadas.vendedor++; return { nome: "Fulano" }; },
+    obterProduto: async (id) => produto(id),
+    obterVendedor: async () => { chamadas.vendedor++; return { nome: "Gustavo Hortins" }; },
+    obterContato: async () => {
+      if (falhas.contato) throw new Error("Bling /contatos/500 respondeu 403");
+      return {
+        fantasia: null, telefone: "(11) 95790-9171", celular: "(11) 95790-9171", email: "dravitoriachalega@hotmail.com",
+        endereco: { endereco: "Rua Urânio", numero: "89", complemento: null, bairro: "Parque Primavera", municipio: "Guarulhos", uf: "SP", cep: "07145140" },
+      };
+    },
+    obterFormaPagamento: async () => { chamadas.forma++; return { descricao: "PIX - ITAÚ" }; },
   };
   return { f, chamadas };
 }
 
-test("monta a folha com cliente, entrega, vendedor e EAN", async () => {
-  const { f } = fonte(pedido());
-  const d = await criarMontadorFolha(f, { filialNome: "Espírito Santo", campoCodigoBarras: "numero" })(77, AGORA);
-  assert.equal(d.filial, "Espírito Santo");
-  assert.equal(d.pedido.numero, "12345");
-  assert.equal(d.pedido.codigoBarras, "12345");
-  assert.equal(d.pedido.vendedor, "Fulano");
-  assert.equal(d.pedido.atendidoEm, AGORA.toISOString());
-  assert.deepEqual(d.entrega, { endereco: "Rua A, 10 — Sala 2 — Centro", cidadeUf: "Vitória/ES", cep: "29000-000" });
-  assert.equal(d.transporte, "SEDEX");
+const montar = (f: FonteBling) => criarMontadorFolha(f, { filialNome: "São Paulo", campoCodigoBarras: "numero" });
+
+test("cliente com documento, endereço, telefone e e-mail como no Bling", async () => {
+  const d = await montar(fonte(pedido()).f)(77, AGORA);
+  assert.equal(d.cliente.nome, "Vitoria Chalega de Lima");
+  assert.equal(d.cliente.documento, "435.242.208-86");
+  assert.equal(d.cliente.endereco, "Rua Urânio, N° 89, Bairro: Parque Primavera.");
+  assert.equal(d.cliente.cidade, "07145140 - Guarulhos, SP");
+  assert.equal(d.cliente.telefone, "Fone: (11) 95790-9171, Celular: (11) 95790-9171");
+  assert.equal(d.cliente.email, "dravitoriachalega@hotmail.com");
+  assert.equal(d.pedido.vendedor, "Gustavo Hortins");
 });
 
-test("itens ordenados por SKU, sem SKU por último, EAN do cadastro do produto", async () => {
-  const { f } = fonte(pedido());
-  const d = await criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "numero" })(77, AGORA);
-  assert.deepEqual(d.itens.map((i) => i.sku), ["AH-1", "ZZ-9", null]);
-  assert.equal(d.itens[0].ean, "7891111111111");
-  assert.equal(d.itens[1].ean, null);
-  assert.equal(d.itens[2].ean, null);
+test("itens com unidade, localização, preços, desconto e detalhes (medidas e peso)", async () => {
+  const d = await montar(fonte(pedido()).f)(77, AGORA);
+  const vol = d.itens.find((i) => i.sku === "ON.11")!;
+  assert.equal(vol.unidade, "Un");
+  assert.equal(vol.localizacao, "F101");
+  assert.equal(vol.precoLista, 417);
+  assert.equal(vol.descontoPct, 0);
+  assert.equal(vol.valorUnitario, 417);
+  assert.equal(vol.total, 417);
+  assert.deepEqual(vol.detalhes, ["L20 X A8 X P10 CM", "Peso Bruto: 0.20000"]);
+  const brinde = d.itens.find((i) => i.sku === null)!;
+  assert.equal(brinde.valorUnitario, 5);
+  assert.equal(brinde.total, 10);
+  assert.deepEqual(brinde.detalhes, ["Amostra grátis"]);
+});
+
+test("itens na ordem do pedido no Bling", async () => {
+  const d = await montar(fonte(pedido()).f)(77, AGORA);
+  assert.deepEqual(d.itens.map((i) => i.sku), ["ON.9", "ON.11", null]);
+});
+
+test("totais, parcelas e transportador", async () => {
+  const d = await montar(fonte(pedido()).f)(77, AGORA);
+  assert.deepEqual(d.totais, {
+    qtdItens: 3, somaQtd: 4, descontoItens: 10, totalProdutos: 834, frete: 40, outrasDespesas: 0, descontoPedido: 0, total: 874,
+  });
+  assert.deepEqual(d.parcelas, [{ dias: 0, vencimento: "2026-10-09", forma: "PIX - ITAÚ", valor: 874, observacao: null }]);
+  assert.deepEqual(d.transportador, { nome: "JPL TARDE (11:10 AS 14:30)", modalidade: "Contratação do Frete por conta do Remetente (CIF)", servico: null });
+});
+
+test("sem permissão de contato: usa o endereço de entrega e segue", async () => {
+  const d = await montar(fonte(pedido(), { contato: true }).f)(77, AGORA);
+  assert.equal(d.cliente.endereco, "Rua Urânio, N° 89, Bairro: Parque Primavera.");
+  assert.equal(d.cliente.telefone, null);
 });
 
 test("campo do código de barras configurável", async () => {
-  const { f } = fonte(pedido());
-  const porLoja = await criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "numeroLoja" })(77, AGORA);
-  assert.equal(porLoja.pedido.codigoBarras, "MP-999");
-  const porId = await criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "id" })(77, AGORA);
-  assert.equal(porId.pedido.codigoBarras, "77");
-  const { f: semLoja } = fonte(pedido({ numeroLoja: null }));
-  assert.equal((await criarMontadorFolha(semLoja, { filialNome: "ES", campoCodigoBarras: "numeroLoja" })(77, AGORA)).pedido.codigoBarras, "12345");
+  const { f } = fonte(pedido({ numeroLoja: "MP-999" }));
+  assert.equal((await criarMontadorFolha(f, { filialNome: "SP", campoCodigoBarras: "numeroLoja" })(77, AGORA)).pedido.codigoBarras, "MP-999");
+  assert.equal((await criarMontadorFolha(f, { filialNome: "SP", campoCodigoBarras: "id" })(77, AGORA)).pedido.codigoBarras, "77");
+  const { f: semLoja } = fonte(pedido());
+  assert.equal((await criarMontadorFolha(semLoja, { filialNome: "SP", campoCodigoBarras: "numeroLoja" })(77, AGORA)).pedido.codigoBarras, "297469");
 });
 
-test("vendedor fica em cache entre pedidos; sem etiqueta vira campos nulos", async () => {
-  const { f, chamadas } = fonte(pedido({ etiqueta: null }));
-  const montar = criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "numero" });
-  const d = await montar(77, AGORA);
-  await montar(77, AGORA);
+test("vendedor e forma de pagamento ficam em cache entre pedidos", async () => {
+  const { f, chamadas } = fonte(pedido());
+  const m = montar(f);
+  await m(77, AGORA);
+  await m(77, AGORA);
   assert.equal(chamadas.vendedor, 1);
-  assert.deepEqual(d.entrega, { endereco: null, cidadeUf: null, cep: null });
+  assert.equal(chamadas.forma, 1);
 });
 
 test("produto ou vendedor excluído no Bling não impede a folha", async () => {
-  const f: FonteBling = {
-    obterPedido: async () => pedido(),
-    obterProduto: async (id) => { if (id === 2) throw new Error("Bling /produtos/2 respondeu 404"); return { gtin: "7891111111111", codigo: null }; },
-    obterVendedor: async () => { throw new Error("Bling /vendedores/3 respondeu 404"); },
-  };
-  const d = await criarMontadorFolha(f, { filialNome: "ES", campoCodigoBarras: "numero" })(77, AGORA);
+  const { f } = fonte(pedido());
+  f.obterProduto = async (id) => { if (id === 9) throw new Error("Bling /produtos/9 respondeu 404"); return produto(id); };
+  f.obterVendedor = async () => { throw new Error("Bling /vendedores/3 respondeu 404"); };
+  const d = await montar(f)(77, AGORA);
   assert.equal(d.pedido.vendedor, null);
-  assert.equal(d.itens.find((i) => i.sku === "ZZ-9")!.ean, null);
-  assert.equal(d.itens.find((i) => i.sku === "AH-1")!.ean, "7891111111111");
+  assert.equal(d.itens[0].localizacao, null);
+  assert.deepEqual(d.itens[0].detalhes, []);
+  assert.equal(d.itens[1].localizacao, "F101");
 });

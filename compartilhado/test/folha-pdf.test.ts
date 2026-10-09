@@ -21,15 +21,15 @@ test("pedido com 1 item sai em 1 página A4", { skip: pular }, async () => {
   assert.ok(Math.abs(width - 595) < 2 && Math.abs(height - 842) < 2, `tamanho ${width}x${height} não é A4`);
 });
 
-test("pedido com 25 itens ainda cabe em 1 página", { skip: pular }, async () => {
-  assert.equal(await paginas(await gerador.gerar(dadosFolhaExemplo(25), via1)), 1);
+test("pedido com 20 itens ainda cabe em 1 página (modelo Bling)", { skip: pular }, async () => {
+  assert.equal(await paginas(await gerador.gerar(dadosFolhaExemplo(20), via1)), 1);
 });
 
 test("pedido com 60 itens quebra em mais páginas", { skip: pular }, async () => {
   assert.ok((await paginas(await gerador.gerar(dadosFolhaExemplo(60), via1))) >= 2);
 });
 
-test("reimpressão com 25 itens continua em 1 página", { skip: pular }, async () => {
+test("reimpressão com 18 itens continua em 1 página (o aviso ocupa uma linha)", { skip: pular }, async () => {
   const via = { numero: 2, motivo: "Folha perdida", usuario: "Maria", em: new Date().toISOString() };
-  assert.equal(await paginas(await gerador.gerar(dadosFolhaExemplo(25), via)), 1);
+  assert.equal(await paginas(await gerador.gerar(dadosFolhaExemplo(18), via)), 1);
 });

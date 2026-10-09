@@ -11,9 +11,21 @@ export type PedidoBling = {
   numero: string;
   numeroLoja: string | null;
   data: string;
-  contato: { nome: string; numeroDocumento: string | null };
+  dataPrevista: string | null;
+  contato: { id: number | null; nome: string; numeroDocumento: string | null };
   vendedorId: number | null;
-  itens: Array<{ codigo: string | null; descricao: string; quantidade: number; produtoId: number | null }>;
+  itens: Array<{
+    codigo: string | null; descricao: string; descricaoDetalhada: string | null; unidade: string | null;
+    quantidade: number; valor: number; descontoPct: number; produtoId: number | null;
+  }>;
+  totalProdutos: number;
+  total: number;
+  outrasDespesas: number;
+  desconto: { valor: number; unidade: string | null };
+  parcelas: Array<{ vencimento: string | null; valor: number; observacao: string | null; formaPagamentoId: number | null }>;
+  frete: number;
+  fretePorConta: number | null;
+  transportadorNome: string | null;
   etiqueta: {
     endereco: string | null; numero: string | null; complemento: string | null; bairro: string | null;
     municipio: string | null; uf: string | null; cep: string | null;
@@ -21,6 +33,16 @@ export type PedidoBling = {
   transporte: string | null;
   observacoes: string | null;
 };
+
+export type ProdutoBling = {
+  gtin: string | null; codigo: string | null; localizacao: string | null; pesoBruto: number | null;
+  dimensoes: { largura: number; altura: number; profundidade: number } | null;
+};
+export type EnderecoBling = {
+  endereco: string | null; numero: string | null; complemento: string | null; bairro: string | null;
+  municipio: string | null; uf: string | null; cep: string | null;
+};
+export type ContatoBling = { fantasia: string | null; telefone: string | null; celular: string | null; email: string | null; endereco: EnderecoBling };
 
 export class ErroBlingDesconectado extends Error {}
 
@@ -55,6 +77,9 @@ export function formatarDataBling(d: Date): string {
 
 const POR_PAGINA = 100;
 const MAX_PAGINAS = 20;
+
+// O Bling manda "0000-00-00" quando a data não foi preenchida.
+const dataValida = (v: unknown): string | null => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && !v.startsWith("0000") ? v.slice(0, 10) : null);
 
 const ouNulo = (v: unknown): string | null => (v === undefined || v === null || v === "" ? null : String(v));
 
@@ -147,28 +172,68 @@ export class ClienteBling {
       numero: String(d.numero),
       numeroLoja: ouNulo(d.numeroLoja),
       data: String(d.data ?? ""),
-      contato: { nome: ouNulo(d.contato?.nome) ?? "—", numeroDocumento: ouNulo(d.contato?.numeroDocumento) },
+      dataPrevista: dataValida(d.dataPrevista),
+      contato: { id: d.contato?.id ? Number(d.contato.id) : null, nome: ouNulo(d.contato?.nome) ?? "—", numeroDocumento: ouNulo(d.contato?.numeroDocumento) },
       vendedorId: d.vendedor?.id ? Number(d.vendedor.id) : null,
       itens: (d.itens ?? []).map((i: any) => ({
         codigo: ouNulo(i.codigo),
         descricao: String(i.descricao ?? ""),
+        descricaoDetalhada: ouNulo(i.descricaoDetalhada),
+        unidade: ouNulo(i.unidade),
         quantidade: Number(i.quantidade),
+        valor: Number(i.valor ?? 0),
+        descontoPct: Number(i.desconto ?? 0),
         produtoId: i.produto?.id ? Number(i.produto.id) : null,
       })),
+      totalProdutos: Number(d.totalProdutos ?? 0),
+      total: Number(d.total ?? 0),
+      outrasDespesas: Number(d.outrasDespesas ?? 0),
+      desconto: { valor: Number(d.desconto?.valor ?? 0), unidade: ouNulo(d.desconto?.unidade) },
+      parcelas: (d.parcelas ?? []).map((p: any) => ({
+        vencimento: dataValida(p.dataVencimento), valor: Number(p.valor ?? 0), observacao: ouNulo(p.observacoes),
+        formaPagamentoId: p.formaPagamento?.id ? Number(p.formaPagamento.id) : null,
+      })),
+      frete: Number(d.transporte?.frete ?? 0),
+      fretePorConta: d.transporte?.fretePorConta === undefined || d.transporte?.fretePorConta === null ? null : Number(d.transporte.fretePorConta),
+      transportadorNome: ouNulo(d.transporte?.contato?.nome),
       etiqueta: et
         ? {
             endereco: ouNulo(et.endereco), numero: ouNulo(et.numero), complemento: ouNulo(et.complemento),
             bairro: ouNulo(et.bairro), municipio: ouNulo(et.municipio), uf: ouNulo(et.uf), cep: ouNulo(et.cep),
           }
         : null,
-      transporte: ouNulo(d.transporte?.volumes?.[0]?.servico) ?? ouNulo(d.transporte?.contato?.nome),
+      transporte: ouNulo(d.transporte?.volumes?.[0]?.servico),
       observacoes: ouNulo(d.observacoes),
     };
   }
 
-  async obterProduto(id: number): Promise<{ gtin: string | null; codigo: string | null }> {
+  async obterProduto(id: number): Promise<ProdutoBling> {
     const d = ((await this.#get(`/produtos/${id}`)) as { data: any }).data;
-    return { gtin: ouNulo(d.gtin), codigo: ouNulo(d.codigo) };
+    const dim = d.dimensoes ?? {};
+    return {
+      gtin: ouNulo(d.gtin), codigo: ouNulo(d.codigo), localizacao: ouNulo(d.estoque?.localizacao),
+      pesoBruto: Number(d.pesoBruto ?? 0) || null,
+      dimensoes: Number(dim.largura) || Number(dim.altura) || Number(dim.profundidade)
+        ? { largura: Number(dim.largura ?? 0), altura: Number(dim.altura ?? 0), profundidade: Number(dim.profundidade ?? 0) }
+        : null,
+    };
+  }
+
+  async obterContato(id: number): Promise<ContatoBling> {
+    const d = ((await this.#get(`/contatos/${id}`)) as { data: any }).data;
+    const e = d.endereco?.geral ?? {};
+    return {
+      fantasia: ouNulo(d.fantasia), telefone: ouNulo(d.telefone), celular: ouNulo(d.celular), email: ouNulo(d.email),
+      endereco: {
+        endereco: ouNulo(e.endereco), numero: ouNulo(e.numero), complemento: ouNulo(e.complemento), bairro: ouNulo(e.bairro),
+        municipio: ouNulo(e.municipio), uf: ouNulo(e.uf), cep: ouNulo(e.cep),
+      },
+    };
+  }
+
+  async obterFormaPagamento(id: number): Promise<{ descricao: string | null }> {
+    const d = ((await this.#get(`/formas-pagamentos/${id}`)) as { data: any }).data;
+    return { descricao: ouNulo(d.descricao) };
   }
 
   async obterVendedor(id: number): Promise<{ nome: string | null }> {
