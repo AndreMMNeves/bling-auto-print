@@ -1,9 +1,9 @@
-// Ponto de entrada na Vercel: todas as rotas caem aqui (ver vercel.json).
+// Ponto de entrada na Vercel. É empacotado por scripts/build-vercel.mjs (todas as rotas caem aqui).
 // A config vem das variáveis de ambiente do projeto na Vercel.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { FastifyInstance } from "fastify";
-import { carregarConfigDoAmbiente } from "../servidor/src/config.ts";
-import { montarServidor } from "../servidor/src/iniciar.ts";
+import { carregarConfigDoAmbiente } from "./config.ts";
+import { montarServidor } from "./iniciar.ts";
 
 // A Vercel corta em 60 s; a primeira ativação para em 40 s e continua na chamada seguinte.
 const ORCAMENTO_MS = 40_000;

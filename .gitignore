@@ -11,3 +11,4 @@ dados/
 servidor/config.json
 agente/config.json
 .superpowers/
+.vercel/

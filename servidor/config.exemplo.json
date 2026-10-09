@@ -2,8 +2,7 @@
   "porta": 3010,
   "urlPublica": "http://localhost:3010",
   "segredoSessao": "TROQUE-por-um-texto-aleatorio-com-40-caracteres-ou-mais",
-  "arquivoBanco": "dados/expedicao.db",
-  "chromePath": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "banco": { "url": "file:dados/expedicao.db" },
   "filial": { "codigo": "ES", "nome": "Espírito Santo" },
   "bling": {
     "clientId": "",

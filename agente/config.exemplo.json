@@ -1,7 +1,9 @@
 {
-  "servidorUrl": "http://localhost:3010",
-  "token": "O MESMO token configurado em servidor/config.json > agentes",
+  "servidorUrl": "https://SEU-PROJETO.vercel.app",
+  "token": "O MESMO valor de AGENTE_TOKEN na Vercel",
   "modo": "pasta",
   "pasta": "dados/folhas",
-  "intervaloSegundos": 5
+  "intervaloSegundos": 5,
+  "cicloSegundos": 30,
+  "chromePath": "C:/Program Files/Google/Chrome/Application/chrome.exe"
 }

@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { esvaziarFila, processarUm, type Impressora } from "../src/agente.ts";
+import { dispararCiclo, esvaziarFila, processarUm, type GerarPdf, type Impressora } from "../src/agente.ts";
 import { ImpressoraPasta } from "../src/impressora.ts";
+
+// O servidor manda os dados; o agente gera o PDF (aqui, um PDF falso com o número do pedido).
+const trabalho = (id: number) => ({ id, impressora: "HP A4", dados: { pedido: { numero: String(id) } }, via: { numero: 1, motivo: null, usuario: null, em: null } });
+const gerarPdf: GerarPdf = async (dados) => Buffer.from(`pdf-${dados.pedido.numero}`);
 
 function servidorFalso(trabalhos: number[]) {
   const resultados: Array<{ id: number; corpo: unknown }> = [];
@@ -14,7 +18,7 @@ function servidorFalso(trabalhos: number[]) {
     if (u.endsWith("/api/agente/proximo")) {
       const id = trabalhos.shift();
       if (id === undefined) return new Response(null, { status: 204 });
-      return Response.json({ id, impressora: "HP A4", pdfBase64: Buffer.from(`pdf-${id}`).toString("base64") });
+      return Response.json(trabalho(id));
     }
     const m = u.match(/impressoes\/(\d+)\/resultado$/);
     if (m) { resultados.push({ id: Number(m[1]), corpo: JSON.parse(String(init!.body)) }); return Response.json({ ok: true }); }
@@ -36,20 +40,20 @@ function impressoraFalsa(falharCom?: string) {
 
 test("fila vazia", async () => {
   const s = servidorFalso([]);
-  assert.equal(await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, fetch: s.fetch }), "vazio");
+  assert.equal(await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, fetch: s.fetch, gerarPdf }), "vazio");
 });
 
 test("imprime e avisa o servidor", async () => {
   const s = servidorFalso([7]);
   const i = impressoraFalsa();
-  assert.equal(await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: s.fetch }), "impresso");
+  assert.equal(await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: s.fetch, gerarPdf }), "impresso");
   assert.deepEqual(i.impressos, [{ pdf: "pdf-7", nome: "HP A4", id: 7 }]);
   assert.deepEqual(s.resultados, [{ id: 7, corpo: { ok: true } }]);
 });
 
 test("erro da impressora é enviado ao servidor", async () => {
   const s = servidorFalso([7]);
-  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa("Impressora offline").imp, fetch: s.fetch });
+  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa("Impressora offline").imp, fetch: s.fetch, gerarPdf });
   assert.equal(r, "falhou");
   assert.deepEqual(s.resultados, [{ id: 7, corpo: { ok: false, erro: "Impressora offline" } }]);
 });
@@ -57,7 +61,7 @@ test("erro da impressora é enviado ao servidor", async () => {
 test("esvaziarFila processa tudo até ficar vazio", async () => {
   const s = servidorFalso([1, 2, 3]);
   const i = impressoraFalsa();
-  assert.equal(await esvaziarFila({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: s.fetch }), 3);
+  assert.equal(await esvaziarFila({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: s.fetch, gerarPdf }), 3);
   assert.deepEqual(i.impressos.map((x) => x.id), [1, 2, 3]);
 });
 
@@ -73,13 +77,13 @@ test("se o servidor cair ao receber o resultado, o agente tenta de novo sem reim
   const esperas: number[] = [];
   const f = async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
-    if (u.endsWith("/api/agente/proximo")) return Response.json({ id: 9, impressora: "HP A4", pdfBase64: Buffer.from("pdf").toString("base64") });
+    if (u.endsWith("/api/agente/proximo")) return Response.json(trabalho(9));
     postsResultado++;
     if (postsResultado === 1) throw new Error("ECONNREFUSED");
     if (postsResultado === 2) return new Response(null, { status: 503 });
     return Response.json({ ok: true });
   };
-  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: f as typeof fetch, esperar: async (ms) => { esperas.push(ms); } });
+  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: f as typeof fetch, gerarPdf, esperar: async (ms) => { esperas.push(ms); } });
   assert.equal(r, "impresso");
   assert.equal(i.impressos.length, 1);
   assert.equal(postsResultado, 3);
@@ -89,12 +93,32 @@ test("se o servidor cair ao receber o resultado, o agente tenta de novo sem reim
 test("desiste de avisar o servidor antes do limite de travada (5 min)", async () => {
   const esperas: number[] = [];
   const f = async (url: string | URL | Request) => {
-    if (String(url).endsWith("/api/agente/proximo")) return Response.json({ id: 9, impressora: "HP A4", pdfBase64: "" });
+    if (String(url).endsWith("/api/agente/proximo")) return Response.json(trabalho(9));
     throw new Error("ECONNREFUSED");
   };
   await assert.rejects(
-    processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, fetch: f as typeof fetch, esperar: async (ms) => { esperas.push(ms); } }),
+    processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, fetch: f as typeof fetch, gerarPdf, esperar: async (ms) => { esperas.push(ms); } }),
     /impressão 9/,
   );
   assert.ok(esperas.reduce((s, x) => s + x, 0) < 5 * 60_000);
+});
+
+test("falha ao gerar o PDF é enviada ao servidor como erro, sem imprimir", async () => {
+  const s = servidorFalso([7]);
+  const i = impressoraFalsa();
+  const r = await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: i.imp, fetch: s.fetch, gerarPdf: async () => { throw new Error("Chrome não abriu"); } });
+  assert.equal(r, "falhou");
+  assert.equal(i.impressos.length, 0);
+  assert.deepEqual(s.resultados, [{ id: 7, corpo: { ok: false, erro: "Falha ao gerar o PDF: Chrome não abriu" } }]);
+});
+
+test("dispararCiclo pede ao servidor para consultar o Bling", async () => {
+  const chamadas: Array<{ url: string; metodo?: string; auth?: string }> = [];
+  const f = async (url: string | URL | Request, init?: RequestInit) => {
+    chamadas.push({ url: String(url), metodo: init?.method, auth: (init?.headers as Record<string, string>).Authorization });
+    return Response.json({ executado: true, resultado: { monitor: "2 novo(s)" } });
+  };
+  const r = await dispararCiclo({ servidorUrl: "https://x.vercel.app", token: "tk", fetch: f as typeof fetch });
+  assert.deepEqual(chamadas, [{ url: "https://x.vercel.app/api/agente/ciclo", metodo: "POST", auth: "Bearer tk" }]);
+  assert.deepEqual(r, { executado: true, resultado: { monitor: "2 novo(s)" } });
 });

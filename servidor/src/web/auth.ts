@@ -39,7 +39,8 @@ function paginaLogin(erro: string | null): string {
 </form>`, { semTitulo: true });
 }
 
-export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
+export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date; config?: { urlPublica: string } }): void {
+  const seguro = d.config?.urlPublica.startsWith("https://") ?? false; // na Vercel o cookie só trafega por HTTPS
   app.decorateRequest("usuario", null);
 
   app.addHook("preHandler", async (req) => {
@@ -62,7 +63,7 @@ export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agor
       return reply.code(401).type("text/html").send(paginaLogin("E-mail ou senha incorretos."));
     }
     const exp = d.agora().getTime() + DURACAO_S * 1000;
-    reply.setCookie(COOKIE, `${u.id}:${exp}`, { signed: true, httpOnly: true, sameSite: "strict", path: "/", maxAge: DURACAO_S });
+    reply.setCookie(COOKIE, `${u.id}:${exp}`, { signed: true, httpOnly: true, secure: seguro, sameSite: "strict", path: "/", maxAge: DURACAO_S });
     return reply.redirect("/");
   });
 
