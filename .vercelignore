@@ -1,0 +1,11 @@
+# Nada local ou com segredo vai para a Vercel.
+dados/
+servidor/config.json
+agente/config.json
+.superpowers/
+.vercel/
+node_modules/
+legado/
+*.db
+*.db-*
+.env.local
