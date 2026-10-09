@@ -7,8 +7,15 @@ import { AGORA, bancoDeTeste, dadosFolhaExemplo, todas } from "./ajudantes.ts";
 const ATENDIDO = 9, CANCELADO = 12, ABERTO = 6;
 const resumo = (numero: string, situacaoId: number): ResumoPedido => ({ id: Number(numero) + 1000, numero, numeroLoja: null, situacaoId });
 
+const VENDEDOR = 1; // consultor configurado nos testes
+
 async function cenario() {
   const base = await bancoDeTeste();
+  // Uma expedição com o consultor VENDEDOR: os pedidos dele vão para a fila dela.
+  const expedicao = await base.repo.criarUsuario({ nome: "Expedição ES", email: "es@x", senhaHash: "h", papel: "expedicao" });
+  const fila = await base.repo.garantirFilaDoUsuario(expedicao, base.filialId);
+  await base.repo.definirConsultor(VENDEDOR, "Larissa", expedicao);
+  const vendedoresConsultados: Array<number | undefined> = [];
   let lista: ResumoPedido[] = [];
   let antigos: ResumoPedido[] = [];
   let agora = AGORA;
@@ -17,19 +24,23 @@ async function cenario() {
   const deps: DepsMonitor = {
     repo: base.repo,
     bling: {
-      listarPedidosAlterados: async (desde, ate) => { consultas.push({ desde, ate }); return lista; },
+      listarPedidosAlterados: async (desde, ate, idVendedor) => {
+        consultas.push({ desde, ate });
+        vendedoresConsultados.push(idVendedor);
+        return idVendedor === VENDEDOR ? lista : [];
+      },
       paginaPorSituacao: async (situacaoId, pagina) => {
         paginasPedidas.push(pagina);
         return [...antigos, ...lista].filter((p) => p.situacaoId === situacaoId).slice((pagina - 1) * 100, pagina * 100);
       },
     },
     montarFolha: async (idBling) => dadosFolhaExemplo(1, String(idBling - 1000)),
-    filialId: base.filialId, impressoraId: base.impressoraId,
+    filialId: base.filialId,
     situacaoAtendido: ATENDIDO, situacaoCancelado: CANCELADO, margemMinutos: 5,
     agora: () => agora,
   };
   return {
-    ...base, deps, consultas, paginasPedidas,
+    ...base, deps, consultas, paginasPedidas, fila, vendedoresConsultados,
     definirLista: (l: ResumoPedido[]) => { lista = l; },
     definirAntigos: (l: ResumoPedido[]) => { antigos = l; },
     avancar: (ms: number) => { agora = new Date(agora.getTime() + ms); },
@@ -213,5 +224,37 @@ test("primeira ativação grande é feita em partes e continua de onde parou", a
   assert.deepEqual(r3, { tipo: "baseline", registrados: 50, concluida: true });
   assert.deepEqual(c.paginasPedidas, [1, 2, 3]);
   assert.equal(await c.repo.obterEstado(`monitor:cursor:${c.filialId}`), AGORA.toISOString());
+  assert.equal((await c.impressoes()).length, 0);
+});
+
+test("cada consultor vai para a fila da sua expedição; os demais não são nem consultados", async () => {
+  const c = await cenario();
+  const pr = await c.repo.criarUsuario({ nome: "Expedição PR", email: "pr@x", senhaHash: "h", papel: "expedicao" });
+  const filaPr = await c.repo.garantirFilaDoUsuario(pr, c.filialId);
+  await c.repo.definirConsultor(2, "Luana Cardoso", pr);
+  await c.repo.definirConsultor(3, "Sem expedição", null);
+  c.deps.bling.listarPedidosAlterados = async (_d, _a, idVendedor) => {
+    c.vendedoresConsultados.push(idVendedor);
+    if (idVendedor === VENDEDOR) return [resumo("10", ATENDIDO)];
+    if (idVendedor === 2) return [resumo("20", ATENDIDO)];
+    return [resumo("30", ATENDIDO)];
+  };
+  await executarCiclo(c.deps); // primeira ativação
+  c.vendedoresConsultados.length = 0;
+  c.avancar(30_000);
+  await executarCiclo(c.deps);
+  assert.deepEqual([...c.vendedoresConsultados].sort(), [VENDEDOR, 2]);
+  const imps = await todas<{ impressora_id: number; dados_json: string }>(c.repo, "SELECT impressora_id, dados_json FROM impressoes ORDER BY id");
+  assert.deepEqual(imps.map((i) => [JSON.parse(i.dados_json).pedido.numero, i.impressora_id]), [["10", c.fila.impressoraId], ["20", filaPr.impressoraId]]);
+});
+
+test("sem nenhum consultor configurado, nada é impresso", async () => {
+  const c = await cenario();
+  await c.repo.definirConsultor(VENDEDOR, "Larissa", null);
+  await executarCiclo(c.deps);
+  c.definirLista([resumo("10", ATENDIDO)]);
+  c.avancar(30_000);
+  const r = await executarCiclo(c.deps);
+  assert.deepEqual(r, { tipo: "ciclo", novos: 0, alertas: 0 });
   assert.equal((await c.impressoes()).length, 0);
 });

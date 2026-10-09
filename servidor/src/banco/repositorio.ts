@@ -1,5 +1,6 @@
 import type { DadosFolha } from "../../../compartilhado/tipos.ts";
 import { fimDoDia, inicioDoDia } from "../../../compartilhado/tempo.ts";
+import { randomBytes } from "node:crypto";
 import type { Banco, Param } from "./banco.ts";
 
 export type Situacao = number;
@@ -16,7 +17,8 @@ export type ImpressaoRow = {
   status: StatusImpressao; tentativas: number; ultimo_erro: string | null; motivo: string | null;
   usuario_id: number | null; criado_em: string; iniciado_em: string | null; impresso_em: string | null;
 };
-export type FiltroRelatorio = { de: string; ate: string; vendedor?: string; pedido?: string; soReimpressoes?: boolean };
+// impressoraId: só a fila de uma expedição (login de expedição). Sem ele: tudo (supervisor).
+export type FiltroRelatorio = { de: string; ate: string; vendedor?: string; pedido?: string; soReimpressoes?: boolean; impressoraId?: number };
 export type LinhaRelatorio = {
   impressaoId: number; criadoEm: string; impressoEm: string | null; numero: string; cliente: string;
   vendedor: string | null; itens: number; via: number; status: StatusImpressao; impressora: string;
@@ -27,7 +29,14 @@ export type ImpressaoView = {
   id: number; via: number; status: StatusImpressao; criado_em: string; impresso_em: string | null;
   motivo: string | null; usuario: string | null; ultimo_erro: string | null;
 };
-export type Papel = "operador" | "supervisor";
+// "expedicao": login de uma expedição (ES, PR...). Vê só os pedidos dos consultores dela e
+// é usado pelo agente do PC daquela expedição.
+export type Papel = "operador" | "supervisor" | "expedicao";
+export type Expedicao = {
+  usuario_id: number; nome: string; email: string; ativo: number; impressora_id: number | null; ligada: number | null;
+  ultima_comunicacao: string | null; impressora_local: string | null;
+};
+export type RegraConsultor = { vendedor_id: number; nome: string; usuario_id: number; impressora_id: number };
 export type UsuarioRow = { id: number; nome: string; email: string; senha_hash: string; papel: Papel; ativo: number };
 export type AgenteRow = {
   id: number; nome: string; ultima_comunicacao: string | null; impressora_id: number; impressora_nome: string;
@@ -263,6 +272,7 @@ export class Repositorio {
     if (f.vendedor) { onde.push("i.dados_json::jsonb #>> '{pedido,vendedor}' ILIKE ?"); params.push(`%${f.vendedor}%`); }
     if (f.pedido) { onde.push("p.numero = ?"); params.push(f.pedido.trim()); }
     if (f.soReimpressoes) onde.push("i.via > 1");
+    if (f.impressoraId !== undefined) { onde.push("i.impressora_id = ?"); params.push(f.impressoraId); }
     return this.todos<LinhaRelatorio>(`${Repositorio.SQL_RELATORIO} WHERE ${onde.join(" AND ")} ORDER BY i.id DESC`, ...params);
   }
 
@@ -282,12 +292,19 @@ export class Repositorio {
     return (await this.um("SELECT 1 AS x FROM alertas WHERE tipo = ? AND resolvido_em IS NULL LIMIT 1", tipo)) !== null;
   }
 
-  async alertasPendentes(): Promise<AlertaView[]> {
+  // Com impressoraId: só alertas de pedidos que passaram por aquela fila.
+  async alertasPendentes(impressoraId?: number): Promise<AlertaView[]> {
+    const daFila = impressoraId === undefined ? "" : "AND EXISTS (SELECT 1 FROM impressoes i WHERE i.pedido_id = a.pedido_id AND i.impressora_id = ?)";
     return this.todos<AlertaView>(
       `SELECT a.id, a.tipo, a.pedido_id, p.numero, a.mensagem, a.criado_em
        FROM alertas a LEFT JOIN pedidos p ON p.id = a.pedido_id
-       WHERE a.resolvido_em IS NULL ORDER BY a.id DESC`,
+       WHERE a.resolvido_em IS NULL ${daFila} ORDER BY a.id DESC`,
+      ...(impressoraId === undefined ? [] : [impressoraId]),
     );
+  }
+
+  async pedidoDaFila(pedidoId: number, impressoraId: number): Promise<boolean> {
+    return (await this.um("SELECT 1 AS x FROM impressoes WHERE pedido_id = ? AND impressora_id = ? LIMIT 1", pedidoId, impressoraId)) !== null;
   }
 
   async alertasDoPedido(pedidoId: number): Promise<AlertaView[]> {
@@ -314,14 +331,16 @@ export class Repositorio {
     }
   }
 
-  async contadoresDoDia(dia: string): Promise<{ impressos: number; naFila: number; alertas: number }> {
-    return (await this.um<{ impressos: number; naFila: number; alertas: number }>(
+  async contadoresDoDia(dia: string, impressoraId?: number): Promise<{ impressos: number; naFila: number; alertas: number }> {
+    const fila = impressoraId === undefined ? "" : "AND impressora_id = ?";
+    const p = impressoraId === undefined ? [] : [impressoraId];
+    const r = (await this.um<{ impressos: number; naFila: number }>(
       `SELECT
-        (SELECT COUNT(*)::int FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ?) AS impressos,
-        (SELECT COUNT(*)::int FROM impressoes WHERE status IN ('fila', 'imprimindo')) AS "naFila",
-        (SELECT COUNT(*)::int FROM alertas WHERE resolvido_em IS NULL) AS alertas`,
-      inicioDoDia(dia), fimDoDia(dia),
+        (SELECT COUNT(*)::int FROM impressoes WHERE status = 'impresso' AND impresso_em BETWEEN ? AND ? ${fila}) AS impressos,
+        (SELECT COUNT(*)::int FROM impressoes WHERE status IN ('fila', 'imprimindo') ${fila}) AS "naFila"`,
+      inicioDoDia(dia), fimDoDia(dia), ...p, ...p,
     ))!;
+    return { ...r, alertas: (await this.alertasPendentes(impressoraId)).length };
   }
 
   async ultimaComunicacaoAgente(impressoraId: number): Promise<string | null> {
@@ -332,6 +351,73 @@ export class Repositorio {
 
   async contarErros(impressoraId: number): Promise<number> {
     return (await this.um<{ n: number }>("SELECT COUNT(*)::int AS n FROM impressoes WHERE impressora_id = ? AND status = 'erro'", impressoraId))!.n;
+  }
+
+  // --- expedições (usuários com fila própria) ---
+  async garantirFilaDoUsuario(usuarioId: number, filialId: number): Promise<{ agenteId: number; impressoraId: number; token: string }> {
+    const existente = await this.um<{ agenteId: number; impressoraId: number; token: string }>(
+      `SELECT a.id AS "agenteId", i.id AS "impressoraId", a.token FROM agentes a JOIN impressoras i ON i.agente_id = a.id
+       WHERE a.usuario_id = ? ORDER BY i.id LIMIT 1`, usuarioId,
+    );
+    if (existente) return existente;
+    const nome = (await this.um<{ nome: string }>("SELECT nome FROM usuarios WHERE id = ?", usuarioId))!.nome;
+    const token = randomBytes(24).toString("hex");
+    const agenteId = await this.inserir("INSERT INTO agentes (nome, token, usuario_id) VALUES (?, ?, ?)", `usuario-${usuarioId}`, token, usuarioId);
+    const impressoraId = await this.inserir("INSERT INTO impressoras (filial_id, agente_id, nome_windows) VALUES (?, ?, ?)", filialId, agenteId, nome);
+    return { agenteId, impressoraId, token };
+  }
+
+  async impressoraDoUsuario(usuarioId: number): Promise<number | null> {
+    return (await this.um<{ id: number }>(
+      "SELECT i.id FROM impressoras i JOIN agentes a ON a.id = i.agente_id WHERE a.usuario_id = ? ORDER BY i.id LIMIT 1", usuarioId,
+    ))?.id ?? null;
+  }
+
+  async impressaoLigada(impressoraId: number): Promise<boolean> {
+    return (await this.um<{ ligada: number }>("SELECT ligada FROM impressoras WHERE id = ?", impressoraId))?.ligada === 1;
+  }
+
+  async definirImpressaoLigada(impressoraId: number, ligada: boolean): Promise<void> {
+    await this.exec("UPDATE impressoras SET ligada = ? WHERE id = ?", ligada ? 1 : 0, impressoraId);
+  }
+
+  async registrarImpressoraLocal(agenteId: number, nome: string | null): Promise<void> {
+    await this.exec("UPDATE agentes SET impressora_local = ? WHERE id = ?", nome, agenteId);
+  }
+
+  async listarExpedicoes(): Promise<Expedicao[]> {
+    return this.todos<Expedicao>(
+      `SELECT u.id AS usuario_id, u.nome, u.email, u.ativo, i.id AS impressora_id, i.ligada, a.ultima_comunicacao, a.impressora_local
+       FROM usuarios u LEFT JOIN agentes a ON a.usuario_id = u.id LEFT JOIN impressoras i ON i.agente_id = a.id
+       WHERE u.papel = 'expedicao' ORDER BY u.nome`,
+    );
+  }
+
+  // --- consultores (vendedor do Bling → expedição) ---
+  async definirConsultor(vendedorId: number, nome: string, usuarioId: number | null): Promise<void> {
+    await this.exec(
+      `INSERT INTO consultores (vendedor_id, nome, usuario_id) VALUES (?, ?, ?)
+       ON CONFLICT (vendedor_id) DO UPDATE SET nome = EXCLUDED.nome, usuario_id = EXCLUDED.usuario_id`,
+      vendedorId, nome, usuarioId,
+    );
+  }
+
+  // Só consultores ligados a uma expedição ativa que já tem fila.
+  async regrasConsultores(): Promise<RegraConsultor[]> {
+    return this.todos<RegraConsultor>(
+      `SELECT c.vendedor_id::float8 AS vendedor_id, c.nome, c.usuario_id, i.id AS impressora_id
+       FROM consultores c JOIN usuarios u ON u.id = c.usuario_id AND u.ativo = 1
+       JOIN agentes a ON a.usuario_id = u.id JOIN impressoras i ON i.agente_id = a.id
+       ORDER BY c.nome`,
+    );
+  }
+
+  async consultoresDoUsuario(usuarioId: number): Promise<Array<{ vendedor_id: number; nome: string }>> {
+    return this.todos("SELECT vendedor_id::float8 AS vendedor_id, nome FROM consultores WHERE usuario_id = ? ORDER BY nome", usuarioId);
+  }
+
+  async todosConsultores(): Promise<Array<{ vendedor_id: number; nome: string; usuario_id: number | null }>> {
+    return this.todos("SELECT vendedor_id::float8 AS vendedor_id, nome, usuario_id FROM consultores ORDER BY nome");
   }
 
   // --- usuários ---

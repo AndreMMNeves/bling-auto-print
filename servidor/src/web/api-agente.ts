@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AgenteRow, Repositorio } from "../banco/repositorio.ts";
 import { entregarProximo, registrarResultado } from "../fila/fila.ts";
+import { verificarSenha } from "./auth.ts";
 
 // tarefasPeriodicas: consulta ao Bling, travadas e planilha. Na Vercel não existe processo
 // sempre ligado, então quem dispara isso é o agente (que fica ligado no PC da expedição).
-export type DepsApiAgente = { repo: Repositorio; agora: () => Date; tarefasPeriodicas: () => Promise<unknown> };
+export type DepsApiAgente = { repo: Repositorio; filialId: number; agora: () => Date; tarefasPeriodicas: () => Promise<unknown> };
 
 export const INTERVALO_MINIMO_CICLO_MS = 20_000;
 
@@ -18,8 +19,20 @@ export function registrarApiAgente(app: FastifyInstance, d: DepsApiAgente): void
       return null;
     }
     await d.repo.registrarComunicacaoAgente(agente.id, d.agora());
+    // O agente diz qual impressora deste PC está usando (aparece no painel).
+    const impressora = req.headers["x-impressora"];
+    if (typeof impressora === "string" && impressora) await d.repo.registrarImpressoraLocal(agente.id, decodeURIComponent(impressora).slice(0, 200));
     return agente;
   }
+
+  // Instalador do PC: entra com o login da expedição e recebe a chave da fila dela.
+  app.post<{ Body: { email?: string; senha?: string } }>("/api/agente/entrar", async (req, reply) => {
+    const u = await d.repo.buscarUsuarioPorEmail(String(req.body?.email ?? ""));
+    if (!u || !u.ativo || !verificarSenha(String(req.body?.senha ?? ""), u.senha_hash)) return reply.code(401).send({ erro: "E-mail ou senha incorretos." });
+    if (u.papel !== "expedicao") return reply.code(403).send({ erro: "Use o login de uma expedição (papel Expedição)." });
+    const fila = await d.repo.garantirFilaDoUsuario(u.id, d.filialId);
+    return { token: fila.token, nome: u.nome };
+  });
 
   app.get("/api/agente/proximo", async (req, reply) => {
     const agente = await autenticar(req, reply);
@@ -27,7 +40,7 @@ export function registrarApiAgente(app: FastifyInstance, d: DepsApiAgente): void
     const t = await entregarProximo(d.repo, agente.impressora_id, d.agora());
     if (!t) return reply.code(204).send();
     // Botão "Impressão automática" do painel: desligada = o agente só salva o PDF.
-    const imprimir = (await d.repo.obterEstado("impressao:ligada")) === "1";
+    const imprimir = await d.repo.impressaoLigada(agente.impressora_id);
     return { id: t.impressaoId, impressora: agente.impressora_nome, dados: t.dados, via: t.via, imprimir };
   });
 

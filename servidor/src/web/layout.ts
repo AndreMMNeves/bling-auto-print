@@ -158,7 +158,7 @@ export function pagina(
 ): string {
   const nav = usuario
     ? `<a href="/">Painel</a><a href="/alertas">Alertas</a><a href="/relatorio">Relatório</a><a href="/pedidos">Pedidos</a>` +
-      (usuario.papel === "supervisor" ? `<a href="/usuarios">Usuários</a><a href="/config">Configuração</a>` : "") +
+      (usuario.papel === "supervisor" ? `<a href="/consultores">Consultores</a><a href="/usuarios">Usuários</a><a href="/config">Configuração</a>` : "") +
       `<span class="quem">${escaparHtml(usuario.nome)}</span><form class="inline" method="post" action="/logout"><button class="sair">Sair</button></form>`
     : "";
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">

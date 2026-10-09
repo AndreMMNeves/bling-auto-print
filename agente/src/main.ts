@@ -27,7 +27,7 @@ repetir(c.cicloSegundos * 1000, async () => {
 // Busca e imprime o que estiver na fila.
 repetir(c.intervaloSegundos * 1000, async () => {
   try {
-    const n = await esvaziarFila({ servidorUrl: c.servidorUrl, token: c.token, impressora, pasta, gerarPdf: (d, v) => gerador.gerar(d, v) });
+    const n = await esvaziarFila({ servidorUrl: c.servidorUrl, token: c.token, impressora, pasta, impressoraLocal: c.impressora, gerarPdf: (d, v) => gerador.gerar(d, v) });
     if (n) console.info(`[agente] ${n} trabalho(s) processado(s)`);
   } catch (e) {
     erro(e);

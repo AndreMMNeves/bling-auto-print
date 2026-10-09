@@ -6,12 +6,11 @@ import { formatarDataHora } from "../../../compartilhado/tempo.ts";
 export type DepsMonitor = {
   repo: Repositorio;
   bling: {
-    listarPedidosAlterados(desde: Date, ate: Date): Promise<ResumoPedido[]>;
+    listarPedidosAlterados(desde: Date, ate: Date, idVendedor?: number): Promise<ResumoPedido[]>;
     paginaPorSituacao(situacaoId: number, pagina: number): Promise<ResumoPedido[]>;
   };
   montarFolha: MontarFolha;
   filialId: number;
-  impressoraId: number;
   situacaoAtendido: number;
   situacaoCancelado: number;
   margemMinutos: number;
@@ -26,6 +25,8 @@ export type ResultadoCiclo =
   | { tipo: "ciclo"; novos: number; alertas: number };
 
 const LIMIAR_RETOMADA_MS = 5 * 60_000;
+
+type PedidoNaFila = ResumoPedido & { impressoraId: number };
 const POR_PAGINA = 100;
 const MAX_PAGINAS_BASELINE = 2000;
 
@@ -36,13 +37,22 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
   if (cursor === null) return primeiraAtivacao(d, chave);
 
   const ultimo = new Date(cursor);
-  const lista = await d.bling.listarPedidosAlterados(new Date(ultimo.getTime() - d.margemMinutos * 60_000), agora);
+  const desde = new Date(ultimo.getTime() - d.margemMinutos * 60_000);
+
+  // Só os consultores ligados a uma expedição: o Bling filtra por vendedor e cada pedido
+  // vai para a fila da expedição do consultor dele. Os demais nem são consultados.
+  const lista: PedidoNaFila[] = [];
+  for (const regra of await d.repo.regrasConsultores()) {
+    for (const r of await d.bling.listarPedidosAlterados(desde, agora, regra.vendedor_id)) {
+      if (!lista.some((x) => x.id === r.id)) lista.push({ ...r, impressoraId: regra.impressora_id });
+    }
+  }
 
   // Pedidos que falharam antes continuam sendo tentados mesmo fora da janela do Bling.
   const chavePendentes = `monitor:pendentes:${d.filialId}`;
-  const pendentes = JSON.parse((await d.repo.obterEstado(chavePendentes)) ?? "[]") as ResumoPedido[];
-  for (const p of pendentes) if (!lista.some((r) => r.id === p.id)) lista.push(p);
-  const aindaPendentes: ResumoPedido[] = [];
+  const pendentes = JSON.parse((await d.repo.obterEstado(chavePendentes)) ?? "[]") as PedidoNaFila[];
+  for (const p of pendentes) if (p.impressoraId && !lista.some((r) => r.id === p.id)) lista.push(p);
+  const aindaPendentes: PedidoNaFila[] = [];
 
   lista.sort((a, b) => Number(a.numero) - Number(b.numero) || a.numero.localeCompare(b.numero));
 
@@ -59,7 +69,7 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
       } catch (e) {
         if (e instanceof ErroBlingDesconectado) throw e;
         // Um pedido com problema não pode travar os outros.
-        aindaPendentes.push({ id: r.id, numero: r.numero, numeroLoja: r.numeroLoja, situacaoId: r.situacaoId });
+        aindaPendentes.push({ id: r.id, numero: r.numero, numeroLoja: r.numeroLoja, situacaoId: r.situacaoId, impressoraId: r.impressoraId });
         if (!pendentes.some((p) => p.id === r.id)) {
           await d.repo.criarAlerta({
             tipo: "falha_impressao", pedidoId: null, agora,
@@ -72,7 +82,7 @@ export async function executarCiclo(d: DepsMonitor): Promise<ResultadoCiclo> {
       // Pedido + 1ª via numa transação; se outro ciclo chegou antes, não grava nada.
       const criado = await d.repo.inserirPedidoComPrimeiraVia(
         { filialId: d.filialId, numero: r.numero, idBling: r.id, situacao: r.situacaoId, origem: "monitor", agora },
-        d.impressoraId, dados,
+        r.impressoraId, dados,
       );
       if (criado) novos++;
       continue;

@@ -3,7 +3,7 @@ import type { FiltroRelatorio, Repositorio } from "../banco/repositorio.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import { COLUNAS_RELATORIO, gerarCsv, linhaParaColunas } from "../relatorio.ts";
 import { diaLocal } from "../../../compartilhado/tempo.ts";
-import { exigirLogin } from "./auth.ts";
+import { escopoFila, exigirLogin } from "./auth.ts";
 import { pagina } from "./layout.ts";
 
 type Query = { de?: string; ate?: string; vendedor?: string; pedido?: string; so?: string; p?: string };
@@ -22,7 +22,7 @@ function lerFiltro(q: Query, hoje: string): FiltroRelatorio {
 
 export function registrarRelatorio(app: FastifyInstance, d: { repo: Repositorio; agora: () => Date }): void {
   app.get<{ Querystring: Query }>("/relatorio", { preHandler: exigirLogin }, async (req, reply) => {
-    const f = lerFiltro(req.query, diaLocal(d.agora()));
+    const f = { ...lerFiltro(req.query, diaLocal(d.agora())), impressoraId: escopoFila(req.usuario) };
     const todas = await d.repo.relatorio(f);
     const qs = new URLSearchParams({ de: f.de, ate: f.ate, vendedor: f.vendedor ?? "", pedido: f.pedido ?? "", so: f.soReimpressoes ? "1" : "" });
     const totalPaginas = Math.max(1, Math.ceil(todas.length / POR_PAGINA));
@@ -52,7 +52,7 @@ ${navegacao}`));
   });
 
   app.get<{ Querystring: Query }>("/relatorio.csv", { preHandler: exigirLogin }, async (req, reply) => {
-    const f = lerFiltro(req.query, diaLocal(d.agora()));
+    const f = { ...lerFiltro(req.query, diaLocal(d.agora())), impressoraId: escopoFila(req.usuario) };
     return reply
       .type("text/csv; charset=utf-8")
       .header("Content-Disposition", `attachment; filename="relatorio-${f.de}-a-${f.ate}.csv"`)

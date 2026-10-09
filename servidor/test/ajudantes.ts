@@ -84,7 +84,10 @@ export async function appDeTeste(extra: Partial<DepsApp> = {}) {
   const deps: DepsApp = {
     repo: b.repo, config: configDeTeste(), filialId: b.filialId, impressoraId: b.impressoraId, agora: () => AGORA,
     montarFolha: async (idBling) => dadosFolhaExemplo(2, String(idBling - 1000)),
-    bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => {}, estaConectado: async () => true },
+    bling: {
+      urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => {}, estaConectado: async () => true,
+      listarVendedores: async () => [],
+    },
     tarefasPeriodicas: async () => ({ ok: true }),
     ...extra,
   };

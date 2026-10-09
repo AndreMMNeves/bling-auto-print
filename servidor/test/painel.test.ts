@@ -51,15 +51,18 @@ test("painel mostra contadores e alertas", async () => {
 
 test("operador não resolve alerta nem reenfileira; supervisor sim", async () => {
   const c = await comAlertaEErro();
+  // A impressão com erro está na fila de uma expedição.
+  const exp = await c.repo.criarUsuario({ nome: "Expedição ES", email: "es@x", senhaHash: "h", papel: "expedicao" });
+  const fila = await c.repo.garantirFilaDoUsuario(exp, c.filialId);
+  await c.repo.db.consultar("UPDATE impressoes SET impressora_id = ? WHERE id = ?", [fila.impressoraId, c.imp]);
   const op = await entrar(c.app, "op@x.com", "senha-op");
   assert.equal((await c.app.inject({ method: "POST", url: `/alertas/${c.alertaId}/resolver`, headers: { cookie: op } })).statusCode, 403);
-  assert.equal((await c.app.inject({ method: "POST", url: "/fila/imprimir-pendentes", headers: { cookie: op } })).statusCode, 403);
+  assert.equal((await c.app.inject({ method: "POST", url: `/expedicoes/${exp}/imprimir-pendentes`, headers: { cookie: op } })).statusCode, 403);
 
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
-  const r = await c.app.inject({ method: "POST", url: "/fila/imprimir-pendentes", headers: { cookie: sup } });
+  const r = await c.app.inject({ method: "POST", url: `/expedicoes/${exp}/imprimir-pendentes`, headers: { cookie: sup } });
   assert.equal(r.statusCode, 302);
   assert.equal((await c.repo.buscarImpressao(c.imp))!.status, "fila");
-  assert.equal((await c.repo.alertasPendentes()).length, 0); // alertas de falha resolvidos junto
 });
 
 test("resolver alerta registra quem resolveu", async () => {
@@ -78,23 +81,4 @@ test("contadores do dia usam o dia local", async () => {
   await b.repo.marcarImpressa(id, new Date("2026-10-09T02:50:00.000Z"));
   assert.equal((await b.repo.contadoresDoDia("2026-10-08")).impressos, 1);
   assert.equal((await b.repo.contadoresDoDia("2026-10-09")).impressos, 0);
-});
-
-test("botão liga/desliga da impressão automática: só supervisor", async () => {
-  const c = await appDeTeste();
-  const op = await entrar(c.app, "op@x.com", "senha-op");
-  const painelOp = await c.app.inject({ url: "/", headers: { cookie: op } });
-  assert.match(painelOp.body, /Impressão automática: <b>Desligada<\/b>/);
-  assert.doesNotMatch(painelOp.body, /action="\/impressao\/ligar"/);
-  assert.equal((await c.app.inject({ method: "POST", url: "/impressao/ligar", headers: { cookie: op } })).statusCode, 403);
-
-  const sup = await entrar(c.app, "sup@x.com", "senha-sup");
-  assert.match((await c.app.inject({ url: "/", headers: { cookie: sup } })).body, /action="\/impressao\/ligar"/);
-  assert.equal((await c.app.inject({ method: "POST", url: "/impressao/ligar", headers: { cookie: sup } })).statusCode, 302);
-  assert.equal(await c.repo.obterEstado("impressao:ligada"), "1");
-  const ligado = await c.app.inject({ url: "/", headers: { cookie: sup } });
-  assert.match(ligado.body, /Impressão automática: <b>Ligada<\/b>/);
-  assert.match(ligado.body, /action="\/impressao\/desligar"/);
-  await c.app.inject({ method: "POST", url: "/impressao/desligar", headers: { cookie: sup } });
-  assert.equal(await c.repo.obterEstado("impressao:ligada"), null);
 });

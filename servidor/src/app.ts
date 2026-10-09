@@ -8,6 +8,7 @@ import { registrarApiAgente } from "./web/api-agente.ts";
 import { SELO_ONIX_JPG_BASE64 } from "../../compartilhado/marca.ts";
 import { registrarAuth } from "./web/auth.ts";
 import { registrarConfig } from "./web/config.ts";
+import { registrarConsultores } from "./web/consultores.ts";
 import { registrarAlertas } from "./web/alertas.ts";
 import { registrarPainel } from "./web/painel.ts";
 import { registrarPedidos } from "./web/pedidos.ts";
@@ -21,7 +22,10 @@ export type DepsApp = {
   impressoraId: number;
   agora: () => Date;
   montarFolha: MontarFolha;
-  bling: { urlAutorizacao(state: string): string; trocarCodigo(code: string): Promise<void>; estaConectado(): Promise<boolean> };
+  bling: {
+    urlAutorizacao(state: string): string; trocarCodigo(code: string): Promise<void>; estaConectado(): Promise<boolean>;
+    listarVendedores(): Promise<Array<{ id: number; nome: string }>>;
+  };
   tarefasPeriodicas: () => Promise<unknown>;
 };
 
@@ -40,5 +44,6 @@ export async function criarApp(d: DepsApp): Promise<FastifyInstance> {
   registrarAlertas(app, d);
   registrarPedidos(app, d);
   registrarConfig(app, d);
+  registrarConsultores(app, d);
   return app;
 }

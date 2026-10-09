@@ -1,6 +1,6 @@
 // Gera dist/OnixAgente.zip: o instalador do agente para levar a outros computadores.
 // No outro PC: extrair o zip e dar dois cliques em "Instalar-Agente-Onix.cmd".
-// ATENÇÃO: o zip leva o token do agente (é o que autoriza o PC no sistema). Uso interno.
+// O zip NÃO leva chave: na instalação, o PC entra com o login da expedição e recebe a chave dela.
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -26,10 +26,10 @@ writeFileSync(join(pasta, "package.json"), JSON.stringify({
   scripts: { agente: "node agente/src/main.ts" }, dependencies: deps,
 }, null, 2));
 
-// Servidor e token vêm da config deste PC; impressora e Chrome o instalador descobre no outro PC.
+// Só o endereço do sistema vai no pacote; login, impressora e Chrome o instalador resolve no outro PC.
 const atual = JSON.parse(readFileSync(join(raiz, "agente", "config.json"), "utf8"));
 writeFileSync(join(pasta, "agente", "config.pacote.json"), JSON.stringify({
-  servidorUrl: atual.servidorUrl, token: atual.token, modo: "imprimir", pasta: "dados/folhas",
+  servidorUrl: atual.servidorUrl, modo: "imprimir", pasta: "dados/folhas",
   intervaloSegundos: 5, cicloSegundos: 30,
 }, null, 2));
 
@@ -39,6 +39,7 @@ writeFileSync(join(pasta, "LEIA-ME.txt"), [
   "1. Extraia esta pasta em qualquer lugar do computador.",
   "2. Dê dois cliques em Instalar-Agente-Onix.cmd e aceite a permissão de administrador.",
   "3. Escolha a impressora deste computador quando o instalador perguntar.",
+  "4. Entre com o login da EXPEDIÇÃO deste computador (ex.: Expedição ES).",
   "",
   "O agente fica instalado em C:\\OnixAgente e liga sozinho com o Windows.",
   `Painel: ${atual.servidorUrl} (a impressão automática liga/desliga por lá).`,

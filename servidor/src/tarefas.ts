@@ -12,13 +12,13 @@ type BlingTarefas = Pick<ClienteBling, "listarPedidosAlterados" | "paginaPorSitu
 // na Vercel é disparado pelo agente via POST /api/agente/ciclo.
 export function criarTarefasPeriodicas(d: {
   repo: Repositorio; bling: BlingTarefas; montarFolha: MontarFolha; config: Config;
-  filialId: number; impressoraId: number; agora: () => Date; enviarPlanilha: EnviarLinhas | null; orcamentoMs?: number;
+  filialId: number; agora: () => Date; enviarPlanilha: EnviarLinhas | null; orcamentoMs?: number;
 }): () => Promise<{ monitor: string; travadas: number; planilha: number }> {
   return async () => {
     let monitor = "Bling não conectado";
     if (await d.bling.estaConectado()) {
       const r = await cicloMonitorado({
-        repo: d.repo, bling: d.bling, montarFolha: d.montarFolha, filialId: d.filialId, impressoraId: d.impressoraId,
+        repo: d.repo, bling: d.bling, montarFolha: d.montarFolha, filialId: d.filialId,
         situacaoAtendido: d.config.bling.situacaoAtendido, situacaoCancelado: d.config.bling.situacaoCancelado,
         margemMinutos: d.config.bling.margemMinutos, agora: d.agora, orcamentoMs: d.orcamentoMs,
       });

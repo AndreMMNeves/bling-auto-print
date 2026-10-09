@@ -4,7 +4,14 @@ import type { Papel, Repositorio } from "../banco/repositorio.ts";
 import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import { marca, pagina } from "./layout.ts";
 
-export type UsuarioSessao = { id: number; nome: string; papel: Papel };
+// fila: impressora (fila) do login de expedição; null para supervisor/operador.
+export type UsuarioSessao = { id: number; nome: string; papel: Papel; fila: number | null };
+
+// Login de expedição só enxerga a própria fila. Supervisor e operador veem tudo (undefined).
+export function escopoFila(u: UsuarioSessao | null): number | undefined {
+  if (!u || u.papel !== "expedicao") return undefined;
+  return u.fila ?? -1; // sem fila ainda: não vê nada
+}
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -52,7 +59,9 @@ export function registrarAuth(app: FastifyInstance, d: { repo: Repositorio; agor
     const [idStr, expStr] = r.value.split(":");
     if (Number(expStr) < d.agora().getTime()) return;
     const u = await d.repo.buscarUsuarioPorId(Number(idStr));
-    if (u && u.ativo) req.usuario = { id: u.id, nome: u.nome, papel: u.papel };
+    if (u && u.ativo) {
+      req.usuario = { id: u.id, nome: u.nome, papel: u.papel, fila: u.papel === "expedicao" ? await d.repo.impressoraDoUsuario(u.id) : null };
+    }
   });
 
   app.get("/login", async (_req, reply) => reply.type("text/html").send(paginaLogin(null)));

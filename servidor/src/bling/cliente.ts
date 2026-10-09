@@ -115,12 +115,13 @@ export class ClienteBling {
 
   // Paginar uma lista que muda durante a leitura pode pular pedidos. Por isso, se a
   // janela tiver 100+ pedidos, ela é dividida ao meio até cada pedaço caber numa página.
-  async listarPedidosAlterados(desde: Date, ate: Date): Promise<ResumoPedido[]> {
+  // idVendedor: só pedidos daquele consultor (o Bling filtra).
+  async listarPedidosAlterados(desde: Date, ate: Date, idVendedor?: number): Promise<ResumoPedido[]> {
     const vistos = new Map<number, ResumoPedido>();
     const pendentes: Array<[Date, Date]> = [[desde, ate]];
     while (pendentes.length) {
       const [de, a] = pendentes.shift()!;
-      const pagina1 = await this.#paginaAlterados(de, a, 1);
+      const pagina1 = await this.#paginaAlterados(de, a, 1, idVendedor);
       if (pagina1.length < POR_PAGINA) {
         for (const p of pagina1) vistos.set(p.id, p);
         continue;
@@ -134,12 +135,24 @@ export class ClienteBling {
       for (const p of pagina1) vistos.set(p.id, p);
       for (let pagina = 2; ; pagina++) {
         if (pagina > MAX_PAGINAS) throw new ErroBling(0, `O Bling devolveu mais de ${MAX_PAGINAS} páginas no mesmo segundo; a paginação parece não funcionar.`);
-        const lote = await this.#paginaAlterados(de, a, pagina);
+        const lote = await this.#paginaAlterados(de, a, pagina, idVendedor);
         for (const p of lote) vistos.set(p.id, p);
         if (lote.length < POR_PAGINA) break;
       }
     }
     return [...vistos.values()];
+  }
+
+  // Vendedores ativos (para a página Consultores).
+  async listarVendedores(): Promise<Array<{ id: number; nome: string }>> {
+    const todos: Array<{ id: number; nome: string }> = [];
+    for (let pagina = 1; pagina <= 20; pagina++) {
+      const q = new URLSearchParams({ pagina: String(pagina), limite: String(POR_PAGINA), situacaoContato: "A" });
+      const data = ((await this.#get(`/vendedores?${q}`)) as { data?: any[] }).data ?? [];
+      for (const v of data) todos.push({ id: Number(v.id), nome: ouNulo(v.contato?.nome) ?? `Vendedor ${v.id}` });
+      if (data.length < POR_PAGINA) break;
+    }
+    return todos.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   }
 
   // Usado só na primeira ativação (uma página por vez), para registrar tudo o que já está Atendido.
@@ -151,13 +164,14 @@ export class ClienteBling {
     }));
   }
 
-  async #paginaAlterados(desde: Date, ate: Date, pagina: number): Promise<ResumoPedido[]> {
+  async #paginaAlterados(desde: Date, ate: Date, pagina: number, idVendedor?: number): Promise<ResumoPedido[]> {
     const q = new URLSearchParams({
       pagina: String(pagina),
       limite: String(POR_PAGINA),
       dataAlteracaoInicial: formatarDataBling(desde),
       dataAlteracaoFinal: formatarDataBling(ate),
     });
+    if (idVendedor !== undefined) q.set("idVendedor", String(idVendedor));
     const j = (await this.#get(`/pedidos/vendas?${q}`)) as { data?: any[] };
     return (j.data ?? []).map((p) => ({
       id: Number(p.id), numero: String(p.numero), numeroLoja: ouNulo(p.numeroLoja), situacaoId: Number(p.situacao?.id),

@@ -6,16 +6,22 @@ import { escaparHtml } from "../../../compartilhado/html-util.ts";
 import { ROTULO_STATUS } from "../relatorio.ts";
 import { formatarDataHora } from "../../../compartilhado/tempo.ts";
 import { listaAlertas } from "./alertas.ts";
-import { exigirLogin, exigirSupervisor, type UsuarioSessao } from "./auth.ts";
+import { escopoFila, exigirLogin, exigirSupervisor, type UsuarioSessao } from "./auth.ts";
 import { pagina } from "./layout.ts";
 
 export const MOTIVOS_REIMPRESSAO = ["Folha perdida", "Folha danificada", "Pedido alterado", "Erro na impressora", "Outro"];
 
 type DepsPedidos = { repo: Repositorio; filialId: number; impressoraId: number; montarFolha: MontarFolha; agora: () => Date };
 
+// Login de expedição só abre pedidos que passaram pela fila dela.
+async function visivel(d: DepsPedidos, pedidoId: number, usuario: UsuarioSessao | null): Promise<boolean> {
+  const fila = escopoFila(usuario);
+  return fila === undefined || (await d.repo.pedidoDaFila(pedidoId, fila));
+}
+
 async function telaPedido(d: DepsPedidos, pedidoId: number, usuario: UsuarioSessao, erro: string | null): Promise<string | null> {
   const p = await d.repo.buscarPedidoPorId(pedidoId);
-  if (!p) return null;
+  if (!p || !(await visivel(d, p.id, usuario))) return null;
   const imps = await d.repo.impressoesDoPedido(p.id);
   const linhas = imps.map((i) => `<tr><td>${i.via}ª via</td><td>${ROTULO_STATUS[i.status]}</td>
     <td>${formatarDataHora(i.impresso_em ?? i.criado_em)}</td><td>${escaparHtml(i.usuario) || "Automática"}</td>
@@ -45,7 +51,7 @@ export function registrarPedidos(app: FastifyInstance, d: DepsPedidos): void {
     const numero = req.query.numero?.trim();
     if (numero) {
       const p = await d.repo.buscarPedido(d.filialId, numero);
-      if (p) return reply.redirect(`/pedidos/${p.id}`);
+      if (p && (await visivel(d, p.id, req.usuario))) return reply.redirect(`/pedidos/${p.id}`);
     }
     return reply.type("text/html").send(pagina(req.usuario, "Pedidos", `
 ${numero ? `<p class="erro">Pedido ${escaparHtml(numero)} não encontrado no sistema.</p>` : ""}
@@ -71,7 +77,9 @@ ${numero ? `<p class="erro">Pedido ${escaparHtml(numero)} não encontrado no sis
 
       const motivo = escolhido === "Outro" ? `Outro: ${outro}` : escolhido;
       try {
-        await reimprimir(d.repo, d.montarFolha, { pedidoId, impressoraId: d.impressoraId, motivo, usuarioId: req.usuario!.id, agora: d.agora() });
+        // Sai na mesma fila (expedição) da impressão anterior do pedido.
+        const impressoraId = (await d.repo.ultimaImpressao(pedidoId))?.impressora_id ?? d.impressoraId;
+        await reimprimir(d.repo, d.montarFolha, { pedidoId, impressoraId, motivo, usuarioId: req.usuario!.id, agora: d.agora() });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return reply.code(502).type("text/html").send(await telaPedido(d, pedidoId, req.usuario!, `Não foi possível buscar o pedido no Bling: ${msg}`));

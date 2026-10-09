@@ -81,9 +81,33 @@ try {
     Write-Host "Usando: $escolhida" -ForegroundColor Green
   }
 
-  # 7. Configuração (servidor e token vêm no pacote)
-  Passo "Gravando a configuração"
+  # 7. Login da expedição: o sistema devolve a chave da fila desta expedição.
   $config = Get-Content "$destino\agente\config.pacote.json" -Raw | ConvertFrom-Json
+  $token = $null
+  if ($configAnterior -and $configAnterior.token) {
+    $manter = Read-Host "Este PC já estava ligado a uma expedição. Manter? (S/n)"
+    if ($manter -notmatch '^[nN]') { $token = $configAnterior.token }
+  }
+  while (-not $token) {
+    Passo "Entre com o login da EXPEDIÇÃO deste computador (ex.: Expedição ES)"
+    $email = Read-Host "E-mail"
+    $senhaSegura = Read-Host "Senha" -AsSecureString
+    $senha = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($senhaSegura))
+    try {
+      $corpo = @{ email = $email; senha = $senha } | ConvertTo-Json
+      $r = Invoke-RestMethod -Method Post -Uri "$($config.servidorUrl)/api/agente/entrar" -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($corpo))
+      $token = $r.token
+      Write-Host "Ligado à expedição: $($r.nome)" -ForegroundColor Green
+    } catch {
+      $msg = $_.ErrorDetails.Message
+      if (-not $msg) { $msg = $_.Exception.Message }
+      Write-Host "Não deu certo: $msg" -ForegroundColor Yellow
+      Write-Host "Confira o e-mail e a senha. O usuário precisa ter o papel 'Expedição' no painel."
+    }
+  }
+
+  Passo "Gravando a configuração"
+  $config | Add-Member -NotePropertyName token -NotePropertyValue $token -Force
   $config | Add-Member -NotePropertyName chromePath -NotePropertyValue $chrome -Force
   $config | Add-Member -NotePropertyName impressora -NotePropertyValue ($(if ($escolhida) { $escolhida } else { '' })) -Force
   if (-not $escolhida) { $config.modo = 'pasta' }

@@ -147,3 +147,13 @@ test("impressora escolhida no PC tem prioridade sobre a que vem do servidor", as
   await comImpressoraLocal(base, "").imprimir(Buffer.from("x"), "EPSON do servidor", 2);
   assert.deepEqual(usadas, ["Brother do Balcão", "EPSON do servidor"]);
 });
+
+test("o agente informa ao servidor a impressora deste PC", async () => {
+  const cabecalhos: Array<Record<string, string>> = [];
+  const f = async (_url: string | URL | Request, init?: RequestInit) => {
+    cabecalhos.push(init?.headers as Record<string, string>);
+    return new Response(null, { status: 204 });
+  };
+  await processarUm({ servidorUrl: "http://srv", token: "tk", impressora: impressoraFalsa().imp, gerarPdf, fetch: f as typeof fetch, impressoraLocal: "EPSON L3250 (balcão)" });
+  assert.equal(cabecalhos[0]["x-impressora"], encodeURIComponent("EPSON L3250 (balcão)"));
+});

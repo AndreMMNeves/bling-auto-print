@@ -160,3 +160,19 @@ test("paginaPorSituacao busca uma página filtrando pela situação", async () =
   assert.match(decodeURIComponent(chamadas[0].url), /idsSituacoes\[\]=9/);
   assert.match(chamadas[0].url, /pagina=2/);
 });
+
+test("listarPedidosAlterados filtra por vendedor quando pedido", async () => {
+  const { fetch, chamadas } = fetchFalso([{ json: { data: [] } }]);
+  await cliente(fetch).listarPedidosAlterados(new Date("2026-10-08T17:00:00Z"), AGORA, 15596870677);
+  assert.match(chamadas[0].url, /idVendedor=15596870677/);
+});
+
+test("listarVendedores traz id e nome dos vendedores ativos", async () => {
+  const { fetch, chamadas } = fetchFalso([{ json: { data: [
+    { id: 15596870677, contato: { nome: "Larissa" } }, { id: 15596471757, contato: { nome: "Luana Cardoso" } },
+  ] } }]);
+  assert.deepEqual(await cliente(fetch).listarVendedores(), [
+    { id: 15596471757, nome: "Luana Cardoso" }, { id: 15596870677, nome: "Larissa" },
+  ].sort((a, b) => a.nome.localeCompare(b.nome)));
+  assert.match(chamadas[0].url, /situacaoContato=A/);
+});

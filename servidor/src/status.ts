@@ -4,6 +4,17 @@ import { formatarDataHora, formatarHora } from "../../compartilhado/tempo.ts";
 export type Indicador = { ok: boolean; texto: string };
 export const AGENTE_OFFLINE_MS = 2 * 60_000;
 
+// Linha geral do Bling (vale para todas as expedições).
+export async function statusBling(repo: Repositorio): Promise<Indicador> {
+  const erroDesde = await repo.obterEstado("bling:erro_desde");
+  const ultima = await repo.obterEstado("bling:ultima_consulta");
+  return erroDesde
+    ? { ok: false, texto: `Sem conexão com o Bling desde ${formatarDataHora(erroDesde)}: ${(await repo.obterEstado("bling:erro_msg")) ?? ""}` }
+    : ultima
+      ? { ok: true, texto: `Bling OK (última consulta ${formatarHora(ultima)})` }
+      : { ok: false, texto: "Ainda não consultou o Bling" };
+}
+
 export async function statusSistema(repo: Repositorio, impressoraId: number, agora: Date): Promise<{ bling: Indicador; agente: Indicador; impressora: Indicador }> {
   const erroDesde = await repo.obterEstado("bling:erro_desde");
   const ultima = await repo.obterEstado("bling:ultima_consulta");

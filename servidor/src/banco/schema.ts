@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nome TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   senha_hash TEXT NOT NULL,
-  papel TEXT NOT NULL CHECK (papel IN ('operador', 'supervisor')),
+  papel TEXT NOT NULL,
   ativo INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS pedidos (
@@ -76,6 +76,22 @@ CREATE TABLE IF NOT EXISTS alertas (
   criado_em TEXT NOT NULL,
   resolvido_por INTEGER REFERENCES usuarios(id),
   resolvido_em TEXT
+);
+ALTER TABLE agentes ADD COLUMN IF NOT EXISTS usuario_id INTEGER UNIQUE REFERENCES usuarios(id) ON DELETE CASCADE;
+ALTER TABLE agentes ADD COLUMN IF NOT EXISTS impressora_local TEXT;
+ALTER TABLE impressoras ADD COLUMN IF NOT EXISTS ligada INTEGER NOT NULL DEFAULT 0;
+@@
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'usuarios_papel_check' AND pg_get_constraintdef(oid) LIKE '%expedicao%') THEN
+    ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_papel_check;
+    ALTER TABLE usuarios ADD CONSTRAINT usuarios_papel_check CHECK (papel IN ('operador', 'supervisor', 'expedicao'));
+  END IF;
+END $$
+@@
+CREATE TABLE IF NOT EXISTS consultores (
+  vendedor_id BIGINT PRIMARY KEY,
+  nome TEXT NOT NULL,
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL
 );
 CREATE TABLE IF NOT EXISTS fila_planilha (
   id SERIAL PRIMARY KEY,

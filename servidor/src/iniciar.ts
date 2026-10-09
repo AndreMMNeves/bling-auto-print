@@ -26,7 +26,7 @@ export async function montarServidor(config: Config, opts: { orcamentoMs?: numbe
   });
   const montarFolha = criarMontadorFolha(bling, { filialNome: config.filial.nome, campoCodigoBarras: config.bling.campoCodigoBarras });
   const tarefasPeriodicas = criarTarefasPeriodicas({
-    repo, bling, montarFolha, config, filialId, impressoraId, agora,
+    repo, bling, montarFolha, config, filialId, agora,
     enviarPlanilha: config.google ? criarEnviadorSheets(config.google) : null,
     orcamentoMs: opts.orcamentoMs,
   });

@@ -21,7 +21,7 @@ test("configuração mostra filial, impressora e estado da conexão", async () =
 
 test("fluxo OAuth: conectar guarda state, callback troca código e resolve alerta", async () => {
   let codigoRecebido = "";
-  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async (code) => { codigoRecebido = code; }, estaConectado: async () => true } });
+  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async (code) => { codigoRecebido = code; }, estaConectado: async () => true, listarVendedores: async () => [] } });
   await c.repo.criarAlerta({ tipo: "bling_desconectado", pedidoId: null, mensagem: "x", agora: AGORA });
   await c.repo.definirEstado("bling:erro_desde", AGORA.toISOString());
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
@@ -46,7 +46,7 @@ test("fluxo OAuth: conectar guarda state, callback troca código e resolve alert
 });
 
 test("falha ao trocar o código mostra o erro", async () => {
-  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => { throw new Error("invalid_client"); }, estaConectado: async () => false } });
+  const c = await appDeTeste({ bling: { urlAutorizacao: (s) => `https://bling.test/auth?state=${s}`, trocarCodigo: async () => { throw new Error("invalid_client"); }, estaConectado: async () => false, listarVendedores: async () => [] } });
   const sup = await entrar(c.app, "sup@x.com", "senha-sup");
   const ir = await c.app.inject({ url: "/bling/conectar", headers: { cookie: sup } });
   const state = new URL(String(ir.headers.location)).searchParams.get("state")!;

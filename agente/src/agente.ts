@@ -6,6 +6,7 @@ export type GerarPdf = (dados: DadosFolha, via: Via) => Promise<Buffer>;
 export type DepsAgente = {
   // pasta: onde salvar quando a impressão automática está desligada no painel.
   servidorUrl: string; token: string; impressora: Impressora; pasta?: Impressora; gerarPdf: GerarPdf;
+  impressoraLocal?: string; // nome da impressora deste PC (aparece no painel)
   fetch?: typeof fetch; esperar?: (ms: number) => Promise<void>;
 };
 export type ResultadoAgente = "vazio" | "impresso" | "salvo" | "falhou";
@@ -13,8 +14,9 @@ export type ResultadoAgente = "vazio" | "impresso" | "salvo" | "falhou";
 export async function processarUm(d: DepsAgente): Promise<ResultadoAgente> {
   const f = d.fetch ?? fetch;
   const auth = { Authorization: `Bearer ${d.token}` };
+  const avisoImpressora: Record<string, string> = d.impressoraLocal ? { "x-impressora": encodeURIComponent(d.impressoraLocal) } : {};
 
-  const r = await f(`${d.servidorUrl}/api/agente/proximo`, { headers: auth });
+  const r = await f(`${d.servidorUrl}/api/agente/proximo`, { headers: { ...auth, ...avisoImpressora } });
   if (r.status === 204) return "vazio";
   if (!r.ok) throw new Error(`Servidor respondeu ${r.status} ao pedir o próximo trabalho`);
   const t = (await r.json()) as { id: number; impressora: string; dados: DadosFolha; via: Via; imprimir?: boolean };
