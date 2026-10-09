@@ -31,3 +31,10 @@ export class ImpressoraPasta implements Impressora {
     await writeFile(join(this.#pasta, `impressao-${id}.pdf`), pdf);
   }
 }
+
+// Cada PC pode ter sua própria impressora (agente/config.json > "impressora").
+// Vazio = usa a impressora cadastrada no servidor.
+export function comImpressoraLocal(base: Impressora, impressoraLocal: string | undefined): Impressora {
+  if (!impressoraLocal) return base;
+  return { imprimir: (pdf, _nomeDoServidor, id) => base.imprimir(pdf, impressoraLocal, id) };
+}

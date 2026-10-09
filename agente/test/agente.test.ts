@@ -138,3 +138,12 @@ test("impressão desligada no painel: só salva o PDF e avisa o servidor que foi
   assert.deepEqual(pasta.impressos.map((x) => x.id), [7]);
   assert.deepEqual(resultados, [{ ok: true, salvo: true }]);
 });
+
+test("impressora escolhida no PC tem prioridade sobre a que vem do servidor", async () => {
+  const usadas: string[] = [];
+  const base: Impressora = { async imprimir(_pdf, nome) { usadas.push(nome); } };
+  const { comImpressoraLocal } = await import("../src/impressora.ts");
+  await comImpressoraLocal(base, "Brother do Balcão").imprimir(Buffer.from("x"), "EPSON do servidor", 1);
+  await comImpressoraLocal(base, "").imprimir(Buffer.from("x"), "EPSON do servidor", 2);
+  assert.deepEqual(usadas, ["Brother do Balcão", "EPSON do servidor"]);
+});

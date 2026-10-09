@@ -12,3 +12,9 @@ servidor/config.json
 agente/config.json
 .superpowers/
 .vercel/
+
+.vercel
+.env*
+agente/src/daemon/
+servidor/src/daemon/
+dist/

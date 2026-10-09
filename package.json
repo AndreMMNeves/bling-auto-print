@@ -12,7 +12,8 @@
     "agente": "node agente/src/main.ts",
     "criar-usuario": "node servidor/src/cli/criar-usuario.ts",
     "explorar-bling": "node servidor/src/cli/explorar-bling.ts",
-    "build:vercel": "node scripts/build-vercel.mjs"
+    "build:vercel": "node scripts/build-vercel.mjs",
+    "pacote:agente": "node scripts/pacote-agente.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

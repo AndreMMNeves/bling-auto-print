@@ -13,6 +13,8 @@ export type ConfigAgente = {
   // A cada quantos segundos pede ao servidor para consultar o Bling (necessário na Vercel).
   cicloSegundos: number;
   chromePath: string;
+  // Impressora deste PC (nome no Windows). Vazio = a cadastrada no servidor.
+  impressora?: string;
 };
 
 export function carregarConfigAgente(arquivo: string): ConfigAgente {

@@ -3,14 +3,14 @@ import { repetir } from "../../compartilhado/loop.ts";
 import { GeradorPdf } from "../../compartilhado/folha/pdf.ts";
 import { dispararCiclo, esvaziarFila } from "./agente.ts";
 import { carregarConfigAgente, RAIZ_AGENTE } from "./config.ts";
-import { ImpressoraPasta, ImpressoraWindows } from "./impressora.ts";
+import { comImpressoraLocal, ImpressoraPasta, ImpressoraWindows } from "./impressora.ts";
 
 const c = carregarConfigAgente(process.argv[2] ?? join(RAIZ_AGENTE, "agente/config.json"));
 // modo "pasta" no config = trava de segurança: nunca imprime, mesmo com o botão do painel ligado.
 const pasta = new ImpressoraPasta(c.pasta);
-const impressora = c.modo === "pasta" ? pasta : new ImpressoraWindows();
+const impressora = c.modo === "pasta" ? pasta : comImpressoraLocal(new ImpressoraWindows(), c.impressora);
 const gerador = new GeradorPdf(c.chromePath);
-console.info(`[agente] iniciado: modo=${c.modo}${c.modo === "pasta" ? ` (${c.pasta})` : ""}, servidor=${c.servidorUrl}`);
+console.info(`[agente] iniciado: modo=${c.modo}${c.modo === "pasta" ? ` (${c.pasta})` : ""}${c.impressora ? `, impressora=${c.impressora}` : ""}, servidor=${c.servidorUrl}`);
 
 const erro = (e: unknown) => console.error(`[agente] ${e instanceof Error ? e.message : String(e)}`);
 
